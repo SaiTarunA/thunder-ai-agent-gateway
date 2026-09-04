@@ -24,7 +24,7 @@ class MiddlewareManager:
             )
 
             # Adding authentication middlewares
-            self.server.add_middleware(JWTAuthMiddleware)
+            # self.server.add_middleware(JWTAuthMiddleware)
 
         except Exception:
             logger.exception("Failed to register middlewares")

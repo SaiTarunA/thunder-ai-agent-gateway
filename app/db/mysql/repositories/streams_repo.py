@@ -77,5 +77,35 @@ class StreamsDBHandler:
             )
             return []
 
+    async def get_streams_parent_messages(self, request_data):
+        try:
+            params = {
+                "param_archiveid": request_data.get("archiveid"),
+                "param_sid": request_data.get("sid"),
+                "param_smsgid": request_data.get("smsgid")
+            }
+            data = await db_connector.execute(
+                db_config.DB_STREAMS,
+                queries.DB_GET_STREAMS_PARENT_MESSAGES,
+                params,
+            )
+            return data if data else []
+        except Exception as e:
+            logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
+            return []
+
+    async def get_streams_thread_messages(self, request_data):
+        try:
+            params = {"param_smsgid": request_data.get("smsgid")}
+            data = await db_connector.execute(
+                db_config.DB_STREAMS,
+                queries.DB_GET_STREAMS_THREAD_MESSAGES,
+                params,
+            )
+            return data if data else []
+        except Exception as e:
+            logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
+            return []
+
 
 streams_db_handler = StreamsDBHandler()

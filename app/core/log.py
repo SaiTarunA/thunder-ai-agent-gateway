@@ -190,6 +190,11 @@ class WatchedSizeAndTimedRotatingHandler(WatchedFileHandler):
                     fcntl.flock(self._lockfile_fd, fcntl.LOCK_UN)
 
             super().emit(record)
+            try:
+                msg = self.format(record)
+                self._current_size += len(msg.encode("utf-8")) + 1
+            except Exception:
+                pass
         except Exception:
             self.handleError(record)
 
@@ -238,8 +243,18 @@ root_logger.addHandler(QueueHandler(log_queue))
 
 
 def start_logging():
-    listener.start()
+    for log_name in ("uvicorn", "uvicorn.access", "uvicorn.error", "fastapi"):
+        lg = logging.getLogger(log_name)
+        lg.propagate = True
+
+    root = logging.getLogger()
+    if not any(isinstance(h, QueueHandler) for h in root.handlers):
+        root.addHandler(QueueHandler(log_queue))
+
+    if not getattr(listener, "_thread", None) or not listener._thread.is_alive():
+        listener.start()
 
 
 def stop_logging():
-    listener.stop()
+    if getattr(listener, "_thread", None) and listener._thread.is_alive():
+        listener.stop()

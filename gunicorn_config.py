@@ -1,6 +1,6 @@
 import multiprocessing
 import psutil
-from app.core.logging_setup import LOG_FILE_PATH
+from app.core.log import LOG_FILE_PATH
 
 cpu_count = multiprocessing.cpu_count()
 total_mem_mb = psutil.virtual_memory().total // (1024 ** 2) # Memory in MB

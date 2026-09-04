@@ -4,7 +4,7 @@ import logging
 
 from app.core.configs.app_config import ROUTES_V1
 
-# from app.core.log import start_logging, stop_logging
+from app.core.log import start_logging, stop_logging
 from app.middleware.manager import MiddlewareManager
 from app.db.mysql.connection.db_pool import DBPool
 
@@ -13,13 +13,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # start_logging()
+    start_logging()
     try:
         await DBPool().init_db_pool()
         yield
     finally:
         await DBPool().close_all()
-        # stop_logging()
+        stop_logging()
 
 
 # FastAPI server

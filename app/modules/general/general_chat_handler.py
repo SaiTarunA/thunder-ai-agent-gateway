@@ -1,11 +1,14 @@
 from fastapi import status
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 import logging
 
 from app.providers.open_ai.client import openai_client
 from app.providers.open_ai.ai_configurator import ai_system_configurator
+from app.modules.ai_summary.schemas import StreamsUserChatData
+from app.db.mysql.repositories.streams_repo import streams_db_handler
 from app.core.utils import utils
+from app.core.message_cleaner import filter_conversations
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,82 @@ class GeneralChatHandler():
                 "msg": "Failed",
             }
     
+
+    async def process_reply_to_thread_request(self, request_data: dict):
+        try:
+
+            reply_to_thread_data = {**request_data, **await ai_system_configurator.prepare_reply_to_thread_config()}
+
+            conversations = await self.collect_thread_messages(request_data)
+            reply_to_thread_data["user_query"] = reply_to_thread_data["user_query"] + f"\nThe Following are the conversations that took place in the thread which helps you to answer/reply to the user query :: {conversations}"
+
+            total_content = str(f"{reply_to_thread_data['user_query']}\n{reply_to_thread_data['instructions']}")
+            await utils.validate_token_limits(total_content, reply_to_thread_data)
+
+            response = await openai_client.process_responses_api_call(reply_to_thread_data)
+            
+            reply_to_thread_msg = ""
+            
+            for output in response.output:
+
+                if output.type == "message":
+                    for c in output.content:
+                        if c.type == "output_text":
+                            reply_to_thread_msg += c.text
+                            break
+                if reply_to_thread_msg:
+                    break
+
+            logger.info(f"reply to thread message :: {reply_to_thread_msg} and it's length :: {len(reply_to_thread_msg)}, agentid :: {str(request_data.get("agentid"))}")
+
+            return {
+                "status": status.HTTP_200_OK,
+                "msg": "Success",
+                "message" : reply_to_thread_msg
+            }
+        except Exception as e:
+            logger.exception(f"Error : {e}")
+            return {
+                "status": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "error": str(e),
+                "msg": "Failed",
+            }
     
+    async def collect_thread_messages(self, request_data):
+        try:
+
+            raw_parent_messages = await streams_db_handler.get_streams_parent_messages(request_data)
+            raw_thread_messages = await streams_db_handler.get_streams_thread_messages(request_data)
+
+            parent_messages: StreamsUserChatData = TypeAdapter(StreamsUserChatData).validate_python(raw_parent_messages)
+            thread_messages: list[StreamsUserChatData] = TypeAdapter(list[StreamsUserChatData]).validate_python(raw_thread_messages)
+
+            conversations: list[dict] = []
+
+            if parent_messages:
+                conversations.append({
+                    "timestamp": parent_messages.messagetime.strftime("%Y-%m-%d %H:%M:%S"),
+                    "user": f"{parent_messages.firstname} {parent_messages.lastname}".strip() or utils.extract_user_name(parent_messages.username),
+                    "message": parent_messages.message
+                })
+
+            for chat in thread_messages:
+                conversations.append({
+                    "timestamp": chat.messagetime.strftime("%Y-%m-%d %H:%M:%S"),
+                    "user": f"{chat.firstname} {chat.lastname}".strip() or utils.extract_user_name(chat.username),
+                    "message": chat.message
+                })
+            
+            conversations = filter_conversations(conversations)
+
+            return conversations
+
+        except Exception as e:
+            logger.exception(f"Error : {e}")
+            return {
+                "status": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "error": str(e),
+                "msg": "Failed",
+            }
 
 general_chat_handler = GeneralChatHandler()

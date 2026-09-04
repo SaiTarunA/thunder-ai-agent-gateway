@@ -12,9 +12,13 @@ logger = logging.getLogger(__name__)
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Bypass CORS preflight requests (OPTIONS)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         path = request.url.path
 
-        # Bypass heartbeat and public paths (e.g. /ai_auth/generate_tokens)
+        # Bypass heartbeat and public paths (e.g. /api/v1/auth/generate_tokens)
         if (
             path == HEART_BEAT_PATH
             or path in PUBLIC_PATHS

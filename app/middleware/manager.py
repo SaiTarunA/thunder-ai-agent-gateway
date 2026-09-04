@@ -18,13 +18,13 @@ class MiddlewareManager:
             self.server.add_middleware(
                 CORSMiddleware,
                 allow_origins=["*"],
-                allow_credentials=False,
+                allow_credentials=True,
                 allow_methods=["*"],
                 allow_headers=["*"],
             )
 
             # Adding authentication middlewares
-            # self.server.add_middleware(JWTAuthMiddleware)
+            self.server.add_middleware(JWTAuthMiddleware)
 
         except Exception:
             logger.exception("Failed to register middlewares")

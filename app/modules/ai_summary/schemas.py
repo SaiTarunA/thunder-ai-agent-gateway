@@ -5,6 +5,7 @@ class SummaryNLPExtractedData(BaseModel):
     start_date: str | None = None
     end_date: str | None = None
     message_count: int | None = None
+    unread_messages: bool | None = False
     is_resummarization_request: bool = False
     context: str | None = None
     summary_type: str | None = None

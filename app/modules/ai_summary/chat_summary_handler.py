@@ -12,6 +12,7 @@ from app.providers.open_ai.ai_configurator import ai_system_configurator
 from app.db.mysql.repositories.streams_repo import streams_db_handler
 from app.db.mysql.repositories.opensips_repo import opensips_db_handler
 from app.core.utils import utils
+from app.core.message_cleaner import filter_conversations
 
 from app.modules.ai_summary.schemas import SummaryNLPExtractedData, StreamsUserChatData, StoredChatSummaryData
 
@@ -25,8 +26,14 @@ class ChatSummaryHandler():
             request_params = request_data.copy()
 
             requested_user_name = request_data.get('user_name')
-            requested_start = datetime.strptime(nlp_response.start_date, "%Y-%m-%d %H:%M:%S")
-            requested_end   = datetime.strptime(nlp_response.end_date, "%Y-%m-%d %H:%M:%S")
+            requested_start = None
+            requested_end = None
+            
+            if nlp_response.start_date:
+                requested_start = datetime.strptime(nlp_response.start_date, "%Y-%m-%d %H:%M:%S")
+            
+            if nlp_response.end_date:
+                requested_end = datetime.strptime(nlp_response.end_date, "%Y-%m-%d %H:%M:%S")
 
             requested_message_count: int | None = nlp_response.message_count
 
@@ -37,17 +44,22 @@ class ChatSummaryHandler():
             if requested_message_count:
                 logger.info(f"Generating summary for message count : {requested_message_count} for agentid : {request_data.get('agentid')}")
                 should_generate_fresh_summary = True
+            
+            elif nlp_response.unread_messages:
+                logger.info(f"Generating summary for unread messages for agentid : {request_data.get('agentid')}")
+                should_generate_fresh_summary = True
 
-            elif nlp_response.start_date and nlp_response.end_date:
+            elif requested_start and requested_end:
                 existing_summaries: list[StoredChatSummaryData] = TypeAdapter(list[StoredChatSummaryData]).validate_python(
-                    await opensips_db_handler.get_chat_summary_from_db(nlp_response.start_date, nlp_response.end_date, request_data)
+                    await opensips_db_handler.get_chat_summary_from_db(requested_start, requested_end, request_data)
                 )
 
                 if existing_summaries:
                     for s in existing_summaries:
                         if s.start_date == requested_start and s.end_date == requested_end:
                             logger.info(f"A summary covering the entire requested range already exists, returning cached summary. agentid: {request_data.get('agentid')}")
-                            return {"status": status.HTTP_200_OK, "msg": "Success", "chat_summary": s.summary}
+                            s.summary = s.summary.replace(requested_user_name, "you")
+                            return {"status": status.HTTP_200_OK, "msg": "Success", "message": s.summary}
 
                     gaps = self.find_coverage_gaps(requested_start, requested_end, existing_summaries, request_data)
                     logger.info(f"Found {len(existing_summaries)} existing summaries and {len(gaps)} gaps, agentid: {request_data.get('agentid')}")
@@ -76,20 +88,19 @@ class ChatSummaryHandler():
                 request_data["user_query"] = json.dumps(conversations, indent=4)
                 response_data = await self.generate_chat_summary(request_data)
 
-            if response_data.get("chat_summary"):
-                if not nlp_response.message_count:
+            if response_data.get("message"):
+                if not nlp_response.message_count or not nlp_response.unread_messages:
                     if nlp_response.is_resummarization_request:
-                        await opensips_db_handler.update_chat_summary_into_db(response_data["chat_summary"], requested_start, requested_end, request_data)
+                        await opensips_db_handler.update_chat_summary_into_db(response_data["message"], requested_start, requested_end, request_data)
                     else:
-                        await opensips_db_handler.insert_chat_summary_into_db(response_data["chat_summary"], requested_start, requested_end, request_data)
+                        await opensips_db_handler.insert_chat_summary_into_db(response_data["message"], requested_start, requested_end, request_data)
 
-                response_data["chat_summary"] = response_data["chat_summary"].replace(requested_user_name, "you")
-                logger.info(f"Updated chat summary :: {response_data['chat_summary']}, agentid :: {request_data.get('agentid')}")
+                response_data["message"] = response_data["message"].replace(requested_user_name, "you")
+                logger.info(f"Updated chat summary :: {response_data['message']}, agentid :: {request_data.get('agentid')}")
 
-            status_code = int(response_data.get("status", status.HTTP_500_INTERNAL_SERVER_ERROR))
             response_data["request_params"] = request_params
 
-            return JSONResponse(content=response_data, status_code=status_code)
+            return response_data
 
         except Exception as e:
             logger.info(f"Error :: {str(e)}, agentid : {request_data.get('agentid')} ")
@@ -220,7 +231,8 @@ class ChatSummaryHandler():
                     request_data,
                     start_date=nlp_response.start_date,
                     end_date=nlp_response.end_date,
-                    message_count=nlp_response.message_count
+                    message_count=nlp_response.message_count,
+                    unread_messages=nlp_response.unread_messages,
                 )
             )
 
@@ -229,7 +241,7 @@ class ChatSummaryHandler():
             if not user_chats:
                 return None
 
-            if nlp_response.message_count:
+            if nlp_response.message_count or nlp_response.unread_messages:
                 user_chats.reverse()
 
             conversations: list[dict] = []
@@ -241,6 +253,12 @@ class ChatSummaryHandler():
                     "user": f"{chat.firstname} {chat.lastname}".strip() or utils.extract_user_name(chat.username),
                     "message": chat.message
                 })
+
+            conversations = filter_conversations(conversations)
+
+            if not conversations:
+                logger.info(f"No valid conversations remaining after filtering noise, agentid : {request_data.get('agentid')}")
+                return None
 
             logger.info(f"length of conversations :: {len(conversations)}, agentid : {request_data.get('agentid')}")
 
@@ -274,7 +292,7 @@ class ChatSummaryHandler():
 
             logger.info(f" Summary :: {chat_summary} length of summary :: {len(chat_summary)}, agentid :: {str(request_data.get('agentid'))}")
 
-            response = {"status": "200", "msg": "Success", "chat_summary": chat_summary}
+            response = {"status": "200", "msg": "Success", "message": chat_summary}
             return response
 
         except Exception as e:

@@ -81,7 +81,7 @@ class IntentDetectionHandler():
                     tool_call_response["type"] = "chat_formatter"
 
                 case openai_constants.FUNCTION_REPLY_TO_THREAD:
-                    tool_call_response = arguments
+                    tool_call_response = await general_chat_handler.process_reply_to_thread_request(request_data)
                     tool_call_response["type"] = "generative_reply"
                 
                 case openai_constants.FUNCTION_GENERATE_SUMMARY:

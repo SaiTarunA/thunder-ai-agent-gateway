@@ -3,7 +3,7 @@ import json
 import aiofiles
 
 from pathlib import Path
-from datetime import date
+from datetime import datetime
 
 from app.providers.open_ai import constants as openai_constants
 from app.db.mysql.repositories.opensips_repo import opensips_db_handler
@@ -95,14 +95,15 @@ class AISystemConfigurator:
                 "operation_type": constants.OPERATION_INTENT_DETECTION,
             }
 
-            today_date = date.today().strftime("%Y-%m-%d")
-            intent_detection_info["instructions"] += (
-                f"Note: today's date is {today_date},"
+            # Inside prepare_intent_detection_config():
+            now_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Prepend at the TOP so it sets authoritative context for all prompt rules below
+            intent_detection_info["instructions"] = (
+                f"CURRENT CONTEXT:\n- current_datetime: {now_datetime}\n\n"
+                + intent_detection_info["instructions"]
             )
 
-            logger.info(
-                f"intent_detection_info :: \n{intent_detection_info}"
-            )
+            logger.info(f"intent_detection_info :: \n{intent_detection_info}")
             return intent_detection_info
 
         except Exception as e:
@@ -156,6 +157,30 @@ class AISystemConfigurator:
                 f"upgrade_user_chat_info :: \n{upgrade_user_chat_info}"
             )
             return upgrade_user_chat_info
+
+        except Exception as e:
+            logger.error(f"Error :: {e}")
+            return None
+
+    async def prepare_reply_to_thread_config(self):
+        try:
+            reply_to_thread_constants = (
+                openai_constants.REPLY_TO_THREAD_CONSTANTS
+            )
+
+            reply_to_thread_info = {
+                **self.prepare_default_ai_system_settings(
+                    {},
+                    reply_to_thread_constants,
+                    openai_constants.MODEL_GPT_4_1_MINI,
+                ),
+                "operation_type": constants.OPERATION_REPLY_TO_THREAD,
+            }
+
+            logger.info(
+                f"reply_to_thread_info :: \n{reply_to_thread_info}"
+            )
+            return reply_to_thread_info
 
         except Exception as e:
             logger.error(f"Error :: {e}")

@@ -50,6 +50,9 @@ class IntentDetectionHandler():
                     function_response_data["response_text"] = output.content[0].text
                     logger.info(f"response message: {function_response_data['response_text']}, agentid :: {data.agentid}")
 
+                elif output.type == "web_search_call":
+                    logger.info(f"web_search_call output item: {output}, agentid :: {data.agentid}")
+
                 else:
                     logger.info(f"unexpected output type: {output.type}, agentid :: {data.agentid}")
                     function_response_data["response_text"] = "Please try again, i am unable to understand your request."

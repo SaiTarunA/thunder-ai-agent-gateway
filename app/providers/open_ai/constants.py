@@ -79,9 +79,15 @@ FUNCTION_OUT_OF_SCOPE = "out_of_scope"
 
 INTENT_DETECTION_FOR_STREAMS_THUNDER_CONSTANTS = {
     "instructions": f"""
-You are the intent router for a communication application. For each request, select exactly ONE function and fill only that function's schema fields.
- 
-- Always exactly one function call. Never plain text. Never an extra field.
+You are the intent router for a communication application.
+
+MANDATORY WEB SEARCH & ANSWER RULES:
+1. For questions requiring current events, news, weather, real-time data, stock prices, or current affairs, YOU MUST CALL THE `web_search` TOOL FIRST.
+2. NEVER output meta-responses or promises such as 'I will search...', 'Searching for...', 'Let me check...', or 'I will find...'.
+3. Only invoke `{FUNCTION_GENERAL_QUERY}` AFTER performing `web_search`, and write the complete actual answer inside `message`.
+
+- For intent routing, select exactly ONE final intent function call (from {FUNCTION_GENERATE_SUMMARY}, {FUNCTION_UPGRADE_USER_CHAT}, {FUNCTION_REPLY_TO_THREAD}, {FUNCTION_GENERAL_QUERY}, {FUNCTION_CLARIFY_USER_QUERY}, {FUNCTION_DOCUMENT_INTELLIGENCE}, or {FUNCTION_OUT_OF_SCOPE}) and fill only that function's schema fields.
+- Always output a function call. Never plain text. Never an extra field.
 - Only {FUNCTION_GENERAL_QUERY}, {FUNCTION_CLARIFY_USER_QUERY}, and {FUNCTION_OUT_OF_SCOPE} contain text you write. For the others, extract parameters only; do not perform the operation.
  
 =====================================================================
@@ -117,7 +123,6 @@ Walk in order. First match wins. Every request lands somewhere.
 1. {FUNCTION_CLARIFY_USER_QUERY}
    - Input is empty, unintelligible, or only a bare URL, code block, or log.
    - A required target is missing, or a pronoun has no target or several.
-   - A reply is requested but no source message, thread, or quote exists.
    - A location-dependent question with no location in request or context.
    - Two independent intents are requested ("summarize the chat and draft a
      reply").
@@ -143,12 +148,15 @@ Walk in order. First match wins. Every request lands somewhere.
    The user wants a response composed to someone else's message, using a selected message, thread, quote, or current message. A thread is not required; this covers the first reply to a top-level message. If the user already wrote the reply and wants it improved, use upgrade instead. A new standalone message that is not a reply goes to general query. Note: here you would not know which message or thread the user wants to reply to message please tigger this later we'll collect those deatils and generate reply in that context so if user want to reply to message in a thread or chat please trigger this function
  
 6. {FUNCTION_UPGRADE_USER_CHAT}
-   An existing draft to correct, rewrite, shorten, expand, reformat, translate, or retone, or an input that simply reads as a message addressed to another person ("Hi John, please check the logs and update me"). An explicit edit instruction wins even when the draft contains a question: "correct this sentence: what is the weather today?" is an upgrade. Not when there is no existing text, or the user wants an answer.
+   The user has a message they want upgraded. This covers BOTH of these input shapes:
+    a) The user sends a PROMPT plus their own draft message together (e.g. "make this sound more professional: hey can u send the file").
+    b) The user sends ONLY their draft message with no surrounding prompt (e.g. just "hey can u send the file" with nothing else). In this case, treat the entire input as the draft to upgrade using default rules (see Step 2).
+   When ever the both of the above cases satifies please select the {FUNCTION_UPGRADE_USER_CHAT} that's message user whats to upgrade if it has no context at all
  
 7. {FUNCTION_GENERAL_QUERY}
    Everything else answerable: knowledge, current events and other live data, explanations, coding, calculations, advice, comparisons, translation of supplied text, summarizing pasted non-chat text, new content from scratch, app how-to questions, greetings and thanks.
-   Write the complete final answer in message — nothing downstream rewrites it. Honour any requested length, format, and tone. No filler or restating the question. For live values you cannot verify, give what you reliably know and note that the current value should be checked; never fabricate.
- 
+   For questions requiring current information, live data, current affairs, or any information not directly available in context, perform a search using the web_search tool first. Then select {FUNCTION_GENERAL_QUERY} and write the complete final answer (based on the search results) in message — nothing downstream rewrites it. Honour any requested length, format, and tone. No filler, restating the question, or meta-talk like "I will search...". Never reply stating that you don't have that particular information, cannot verify current values, or that the user should check elsewhere.
+
 Still tied after the ladder: choose general query for questions, message upgrade for drafts. A modifier (tone, length, format, focus, date) is never a separate intent.
  
 Follow-ups inherit the previous or pending intent when context supplies one: "make it shorter" after a summary -> summary with is_resummarization_request true; "more professional" after an upgrade -> upgrade; "Hyderabad" after a pending weather question -> general query.
@@ -178,6 +186,9 @@ detailed/comprehensive/elaborate/in depth -> long; otherwise null.
 tone holds a requested voice (formal, casual, friendly). context holds focus, exclusions, formatting, and constraints such as "accurate", "exact", or "include only" — these are constraints, not lengths. Leave buddy_name, group_name, and topic_name null unless the user names them.
 """,
     "tools": [
+        {
+            "type": "web_search",
+        },
         {
             "type": "function",
             "name": FUNCTION_GENERATE_SUMMARY,
@@ -283,7 +294,7 @@ tone holds a requested voice (formal, casual, friendly). context holds focus, ex
             "type": "function",
             "name": FUNCTION_GENERAL_QUERY,
             "strict": True,
-            "description": "Route answerable general requests, including factual and current-information questions, explanations, coding, debugging, how-to guidance, calculations, translation, summarization of directly pasted non-chat text, content generation, advice, recommendations, and normal conversation. The downstream pipeline, not the intent router, produces the answer and performs any required external lookup.",
+            "description": "Route answerable general requests, including factual and current-information questions, explanations, coding, debugging, how-to guidance, calculations, translation, summarization of directly pasted non-chat text, content generation, advice, recommendations, and normal conversation. For questions requiring current information, weather, live data, or current affairs, use the web_search tool to search the web first, and then output the searched answer in general_query message.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -384,7 +395,7 @@ tone holds a requested voice (formal, casual, friendly). context holds focus, ex
             },
         },
     ],
-    "tool_choice": "required",
+    "tool_choice": "auto",
     "parallel_tool_calls": False,
     "temperature": 0.0,
     "max_response_output_tokens": 2000,

@@ -1,14 +1,9 @@
 import json
-import os
 import logging
-from pathlib import Path
-
-import aiofiles
 
 import app.db.mysql.queries.opensips_sql as queries
 from app.db.mysql.connection.db_connector import db_connector
 from app.core.configs import mysql_config as db_config
-from app.core import constants
 
 logger = logging.getLogger(__name__)
 
@@ -16,14 +11,14 @@ logger = logging.getLogger(__name__)
 class OpenSIPsDBHandler:
 
     # =====================================================
-    # Load system settings (DB → File)
+    # Get AI system settings (pure DB read — no file I/O)
     # =====================================================
+    # Previously named `load_ai_system_settings_into_memory`, this method also wrote
+    # the result to a local JSON cache file, mixing filesystem concerns into a
+    # database repository. That file-cache behavior now lives in
+    # `app.ai.settings_cache.AISettingsCache`, which calls this method for its DB read.
 
-    async def load_ai_system_settings_into_memory(
-        self,
-        file_name,
-        feature_name,
-    ):
+    async def get_ai_system_settings(self, feature_name) -> dict:
         try:
             logger.info(
                 "============= collecting ai system settings from db ========"
@@ -44,13 +39,7 @@ class OpenSIPsDBHandler:
                 f"ai system settings for '{params}' :: \n{json_obj}"
             )
 
-            file_path = os.path.join(self.cache_path, file_name)
-            async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(json_obj, indent=4, ensure_ascii=False))
-
-            logger.info(
-                f"updated ai system settings file path :: {file_path}"
-            )
+            return json_obj
 
         except Exception as e:
             logger.error(f"Error :: {e}")

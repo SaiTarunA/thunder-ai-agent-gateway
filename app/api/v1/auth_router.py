@@ -4,9 +4,9 @@ from typing import Optional
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Request, Response, status
 
-from app.modules.auth.jwt_manager import jwt_manager, REFRESH_TOKEN_EXPIRE_DAYS
+from app.security.jwt_manager import jwt_manager, REFRESH_TOKEN_EXPIRE_DAYS
 from app.db.mysql.repositories.cloud_repo import cloud_db_handler
-from app.modules.auth.schemas import GenerateTokensRequest, TokenResponse
+from app.features.auth.schemas import GenerateTokensRequest, TokenResponse
 
 logger = logging.getLogger(__name__)
 

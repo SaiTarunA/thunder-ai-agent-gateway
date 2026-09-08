@@ -17,8 +17,7 @@ class CloudDBHandler:
     ):
         try:
             logger.info(
-                f"============= fetch_query_for_authorization "
-                f"========== authkey :: {authkey}, "
+                f"============= authkey :: {authkey}, "
                 f"agentid :: {username}"
             )
             query = queries.DB_SELECT_QUERY_FOR_AUTHORIZATION

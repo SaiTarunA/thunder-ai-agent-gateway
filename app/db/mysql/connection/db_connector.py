@@ -44,14 +44,13 @@ class DBConnector:
 
             if not engines:
                 logger.error(
-                    f"[DBConnector][execute] No pool objects for {db_type}"
+                    f"No pool objects for {db_type}"
                 )
                 return None
 
             for i, engine in enumerate(engines):
                 host = engine.url.host
                 logger.info(
-                    f"[DBConnector][execute] "
                     f"host :: {host} "
                     f"type :: {db_type} "
                     f"index :: {i}"
@@ -62,7 +61,6 @@ class DBConnector:
                 while retry:
                     try:
                         logger.info(
-                            f"[DBConnector][execute] "
                             f"Trying DB: {db_type}, "
                             f"Host: {host}, "
                             f"retry count: {retry}"
@@ -84,14 +82,12 @@ class DBConnector:
                     except Exception as err:
                         if retry == 1:
                             logger.error(
-                                f"[DBConnector][execute] "
                                 f"Max retries reached -> {err}"
                             )
                             result = None
                             break
                         retry -= 1
                         logger.error(
-                            f"[DBConnector][execute] "
                             f"DB failed -> {err}"
                         )
 
@@ -100,13 +96,12 @@ class DBConnector:
 
             if result is None:
                 logger.error(
-                    "[DBConnector][execute] "
                     "All DB connections failed"
                 )
 
         except Exception as e:
             logger.exception(
-                f"[DBConnector][execute] Query failed: {e}"
+                f"Query failed: {e}"
             )
 
         return result
@@ -131,7 +126,6 @@ class DBConnector:
 
             if not engines:
                 logger.error(
-                    "[DBConnector][execute_statement] "
                     f"No pool objects for {db_type}"
                 )
                 return None
@@ -139,7 +133,6 @@ class DBConnector:
             for i, engine in enumerate(engines):
                 host = engine.url.host
                 logger.info(
-                    f"[DBConnector][execute_statement] "
                     f"host :: {host} "
                     f"type :: {db_type} "
                     f"index :: {i}"
@@ -150,7 +143,6 @@ class DBConnector:
                 while retry:
                     try:
                         logger.info(
-                            f"[DBConnector][execute_statement] "
                             f"Trying DB TYPE :: {db_type}, "
                             f"DB_IP :: {host}, "
                             f"retry :: {retry}"
@@ -185,14 +177,12 @@ class DBConnector:
                     except Exception as err:
                         if retry == 1:
                             logger.error(
-                                "[DBConnector][execute_statement] "
                                 f"Max retries reached :: {err}"
                             )
                             result = None
                             break
                         retry -= 1
                         logger.error(
-                            "[DBConnector][execute_statement] "
                             f"DB connection failed :: "
                             f"{host} :: {err}"
                         )
@@ -205,13 +195,11 @@ class DBConnector:
 
             if result is None:
                 logger.error(
-                    "[DBConnector][execute_statement] "
                     "All database connections failed"
                 )
 
         except Exception as e:
             logger.exception(
-                "[DBConnector][execute_statement] "
                 f"Query failed :: {e}"
             )
 

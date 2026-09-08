@@ -12,7 +12,7 @@ class WarehouseDBHandler:
 
     async def getUUID(self):
         try:
-            logger.info("============= getUUID ========")
+            logger.info("==============================")
             query = queries.DB_GET_UNIQUE_ID
             data = await db_connector.execute(db_config.DB_WAREHOUSEPBX, query, [])
             return data[0]["uniqueid"] if data else None
@@ -23,7 +23,7 @@ class WarehouseDBHandler:
     async def verifyAuthToken(self, auth_token):
         try:
             logger.info(
-                f"============= verify_authkey ======== auth_token :: {auth_token}"
+                f"============= auth_token :: {auth_token}"
             )
             query = queries.DB_SELECT_UNIQUE_ID
             params = {"uniqueid": auth_token}
@@ -39,7 +39,7 @@ class WarehouseDBHandler:
     async def insertAuthToken(self, unique_id, agentid, siteid):
         try:
             logger.info(
-                f"============= insert_authkey ======== agentid :: {agentid}"
+                f"============= agentid :: {agentid}"
             )
             query = queries.DB_INSERT_UNIQUE_ID
             params = {"uniqueid": unique_id, "agentid": agentid, "siteid": siteid}
@@ -54,7 +54,7 @@ class WarehouseDBHandler:
     async def deleteAuthToken(self, auth_token):
         try:
             logger.info(
-                f"============= delete_authkey ======== auth_token :: {auth_token}"
+                f"============= auth_token :: {auth_token}"
             )
             query = queries.DB_DELETE_UUINQUQ_ID
             params = {"uniqueid": auth_token}
@@ -69,7 +69,7 @@ class WarehouseDBHandler:
     async def insertResponseBody(self, response, unique_id, agentid):
         try:
             logger.info(
-                f"============= insertResponseBody ======== agentid :: {agentid}"
+                f"============= agentid :: {agentid}"
             )
             res_body = json.dumps(response, indent=2)
             query = queries.DB_UPDATE_RES_BODY
@@ -78,7 +78,7 @@ class WarehouseDBHandler:
                 db_config.DB_WAREHOUSEPBX, query, params
             )
             logger.info(
-                f"insertResponseBody response :: {data}, agentid :: {agentid}"
+                f"response :: {data}, agentid :: {agentid}"
             )
             return data if data else None
         except Exception as e:

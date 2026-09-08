@@ -9,33 +9,10 @@ logger = logging.getLogger(__name__)
 
 class StreamsDBHandler:
 
-    # =====================================================
-    # Insert OpenAI billing data
-    # =====================================================
-
-    async def insert_openai_billing_data(self, bill_data, agentid):
-        try:
-            logger.info(
-                "============= insertOpenAIBillingData =========="
-                f" bill_data :: {bill_data}, agentid :: {agentid}"
-            )
-
-            if not bill_data:
-                logger.error("NO bill_data found ------ ")
-                return []
-
-            query = queries.DB_GENERATE_AI_BILLING
-            params = bill_data
-            data = await db_connector.execute_statement(
-                db_config.DB_STREAMS,
-                query,
-                params,
-            )
-            return data if data else []
-
-        except Exception as e:
-            logger.error(f"Error :: {e}, agentid :: {agentid}")
-            return []
+    # Note: billing-insert used to live here as `insert_openai_billing_data`.
+    # It moved to `app.billing.repository.BillingRepository.insert_billing_data` —
+    # billing isn't a Streams-domain query, and keeping it here meant this repository
+    # carried OpenAI-specific naming even before this restructure.
 
     # =====================================================
     # Get streams user chat

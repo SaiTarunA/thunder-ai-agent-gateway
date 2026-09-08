@@ -1,8 +1,8 @@
 from fastapi import APIRouter, status
 import logging
 
-from app.modules.intent_router.schemas import LunaRequest
-from app.modules.intent_router.intent_detection_handler import intent_detection_handler
+from app.features.intent_detection.schemas import LunaRequest
+from app.features.intent_detection.handler import intent_detection_handler
 
 logger = logging.getLogger(__name__)
 

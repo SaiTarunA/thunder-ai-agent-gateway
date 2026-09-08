@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
-from app.middleware.jwt_auth import JWTAuthMiddleware
+from app.security.jwt_auth_middleware import JWTAuthMiddleware
 
 logger = logging.getLogger(__name__)
 

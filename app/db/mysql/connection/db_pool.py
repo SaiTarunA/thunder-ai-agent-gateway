@@ -22,7 +22,7 @@ class DBPool:
         configured masters and slaves.
         """
         try:
-            logger.info("[init_db_pool] =============")
+            logger.info("=============")
 
             for db_name, dbcfg in db_config.DB_CONFIGS.items():
 
@@ -51,7 +51,7 @@ class DBPool:
 
         except Exception as e:
             logger.exception(
-                f"[init_db_pool] Error initializing pools: {e}"
+                f"Error initializing pools: {e}"
             )
 
     async def create_engine(
@@ -101,7 +101,7 @@ class DBPool:
 
         except SQLAlchemyError as e:
             logger.error(
-                f"[create_engine] Error creating async engine: {e}"
+                f"Error creating async engine: {e}"
             )
             return None
 
@@ -117,13 +117,13 @@ class DBPool:
             engines = self.engines.get(db_name, {}).get(role, [])
             if not engines:
                 logger.error(
-                    f"[get_engines] No engines found "
+                    f"No engines found "
                     f"for {db_name} ({role})"
                 )
                 return None
             return engines
         except Exception as e:
-            logger.error(f"[get_engines] Error getting engines: {e}")
+            logger.error(f"Error getting engines: {e}")
             return None
 
     async def close_all(self):

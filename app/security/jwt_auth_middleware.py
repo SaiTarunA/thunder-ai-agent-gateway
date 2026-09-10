@@ -11,6 +11,18 @@ logger = logging.getLogger(__name__)
 
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
+    def _unauthorized_response(self, request: Request, content: dict) -> JSONResponse:
+        origin = request.headers.get("origin")
+        headers = {}
+        if origin:
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Access-Control-Allow-Credentials"] = "true"
+        return JSONResponse(
+            status_code=401,
+            content=content,
+            headers=headers,
+        )
+
     async def dispatch(self, request: Request, call_next):
         # Bypass CORS preflight requests (OPTIONS)
         if request.method == "OPTIONS":
@@ -29,8 +41,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
 
         if not auth_header:
-            return JSONResponse(
-                status_code=401,
+            return self._unauthorized_response(
+                request,
                 content={"detail": "Missing Authorization header", "code": "missing_token"},
             )
 
@@ -43,26 +55,26 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
             agentid = payload.get("sub")
             if not agentid:
-                return JSONResponse(
-                    status_code=401,
+                return self._unauthorized_response(
+                    request,
                     content={"detail": "Token missing subject claim (sub)", "code": "invalid_token"},
                 )
         except jwt.ExpiredSignatureError:
             logger.warning(f"Access token expired for path {path}")
-            return JSONResponse(
-                status_code=401,
+            return self._unauthorized_response(
+                request,
                 content={"detail": "Token has expired", "code": "token_expired"},
             )
         except jwt.InvalidTokenError as e:
             logger.warning(f"Invalid access token for path {path}: {str(e)}")
-            return JSONResponse(
-                status_code=401,
+            return self._unauthorized_response(
+                request,
                 content={"detail": f"Invalid token: {str(e)}", "code": "invalid_token"},
             )
         except Exception as e:
             logger.error(f"Unexpected authentication error: {str(e)}", exc_info=True)
-            return JSONResponse(
-                status_code=401,
+            return self._unauthorized_response(
+                request,
                 content={"detail": "Authentication failed", "code": "auth_failed"},
             )
 

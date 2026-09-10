@@ -1,8 +1,9 @@
 import logging
+from typing import Any, Optional
 
 from fastapi import status
 
-from app.ai import constants as ai_constants
+from app.ai import ai_constants
 from app.ai.config_builder import ai_config_builder
 from app.ai.router import model_router
 from app.ai.tokenizer import validate_token_limits
@@ -10,9 +11,9 @@ from app.ai.tools import parse_tool_call_arguments, pydantic_model_to_openai_too
 from app.features.chat_summary.handler import chat_summary_handler
 from app.features.general_chat.handler import general_chat_handler
 from app.features.intent_detection.schemas import INTENT_TOOL_SCHEMAS, WEB_SEARCH_TOOL, LunaRequest
+from app.core.utils import utils
 
 logger = logging.getLogger(__name__)
-
 
 class IntentDetectionHandler():
 
@@ -64,6 +65,16 @@ class IntentDetectionHandler():
                 logger.warning(f"an unknown function name is called :: {tool_call.name}, agentid :: {data.agentid}")
                 raise Exception(f"Unknown function name :: {tool_call.name}")
 
+            # Cross-check 1: Misrouted upgrade_user_chat for questions with grammatical errors
+            if tool_call.name == ai_constants.FUNCTION_UPGRADE_USER_CHAT and utils.is_inquiry_or_question(data.user_query):
+                logger.warning(
+                    f"Misrouted intent corrected: model called '{tool_call.name}', but user_query was detected as an inquiry/question: '{data.user_query}'. Re-routing to general query, agentid :: {data.agentid}"
+                )
+                function_response_data = await general_chat_handler.process_general_query_request(request_data)
+                function_response_data["type"] = "general_reply"
+                function_response_data["request_params"] = {**request_data}
+                return function_response_data
+
             model_cls, _ = INTENT_TOOL_SCHEMAS[tool_call.name]
             # Every branch is validated against its Pydantic model here — previously
             # only generate_summary's arguments were parsed into one before use.
@@ -71,7 +82,9 @@ class IntentDetectionHandler():
 
             logger.info(f"Function name :: {tool_call.name}, arguments :: {validated_args}, agentid :: {data.agentid}")
 
-            function_response_data = await self.handle_function_calls(tool_call.name, validated_args, request_data)
+            function_response_data = await self.handle_function_calls(
+                tool_call.name, validated_args, request_data, raw_response_text=response.text
+            )
 
             function_response_data["request_params"] = {**request_data}
 
@@ -85,7 +98,9 @@ class IntentDetectionHandler():
                 "msg": "Failed",
             }
 
-    async def handle_function_calls(self, function_name, args, request_data):
+    async def handle_function_calls(
+        self, function_name: str, args: Any, request_data: dict, raw_response_text: Optional[str] = None
+    ):
         try:
 
             tool_call_response = {}
@@ -96,8 +111,8 @@ class IntentDetectionHandler():
                     tool_call_response = await general_chat_handler.process_upgrade_user_chat_request(request_data)
                     tool_call_response["type"] = "chat_formatter"
 
-                case ai_constants.FUNCTION_REPLY_TO_THREAD:
-                    tool_call_response = await general_chat_handler.process_reply_to_thread_request(request_data)
+                case ai_constants.FUNCTION_PROCESS_THREAD:
+                    tool_call_response = await general_chat_handler.process_thread_request(args, request_data)
                     tool_call_response["type"] = "generative_reply"
 
                 case ai_constants.FUNCTION_GENERATE_SUMMARY:
@@ -105,8 +120,25 @@ class IntentDetectionHandler():
                     tool_call_response["type"] = "chat_summary"
 
                 case ai_constants.FUNCTION_GENERAL_QUERY:
-                    tool_call_response = args.model_dump()
-                    tool_call_response["type"] = "general_reply"
+                    message = args.message
+                    if utils.is_meta_response(message):
+                        logger.warning(
+                            f"Meta-response detected in general_query: '{message}', agentid :: {request_data.get('agentid')}"
+                        )
+                        # Attempt to recover substantive text from raw_response_text if available
+                        if raw_response_text and not utils.is_meta_response(raw_response_text) and len(raw_response_text.strip()) > 15:
+                            logger.info("Using substantive raw response.text to replace meta-response")
+                            message = raw_response_text.strip()
+                        else:
+                            logger.info("Invoking general_chat_handler to generate substantive answer for general query")
+                            gen_res = await general_chat_handler.process_general_query_request(request_data)
+                            if gen_res.get("status") == status.HTTP_200_OK and gen_res.get("message"):
+                                message = gen_res["message"]
+
+                    tool_call_response = {
+                        "message": message,
+                        "type": "general_reply",
+                    }
 
                 case ai_constants.FUNCTION_CLARIFY_USER_QUERY:
                     tool_call_response = args.model_dump()

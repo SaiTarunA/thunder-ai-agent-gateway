@@ -1,5 +1,6 @@
 import json
 import logging
+import shutil
 from datetime import datetime, timedelta
 
 from fastapi import status
@@ -8,7 +9,6 @@ from pydantic import TypeAdapter
 from app.ai.config_builder import ai_config_builder
 from app.ai.router import model_router
 from app.ai.tokenizer import validate_token_limits
-from app.core.message_cleaner import filter_conversations
 from app.core.utils import utils
 from app.db.mysql.repositories.opensips_repo import opensips_db_handler
 from app.db.mysql.repositories.streams_repo import streams_db_handler
@@ -16,6 +16,10 @@ from app.features.chat_summary.schemas import (
     StoredChatSummaryData,
     StreamsUserChatData,
     SummaryNLPExtractedData,
+)
+from app.workers.attachment_worker import (
+    TEMP_ATTACHMENT_DIR,
+    process_messages_attachments,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,7 +29,6 @@ class ChatSummaryHandler():
 
     async def process_chat_summary_request(self, nlp_response: SummaryNLPExtractedData, request_data):
         try:
-
             request_params = request_data.copy()
 
             requested_user_name = request_data.get('user_name')
@@ -61,7 +64,8 @@ class ChatSummaryHandler():
                     for s in existing_summaries:
                         if s.start_date == requested_start and s.end_date == requested_end:
                             logger.info(f"A summary covering the entire requested range already exists, returning cached summary. agentid: {request_data.get('agentid')}")
-                            s.summary = s.summary.replace(requested_user_name, "you")
+                            if requested_user_name:
+                                s.summary = s.summary.replace(requested_user_name, "you")
                             return {"status": status.HTTP_200_OK, "msg": "Success", "message": s.summary}
 
                     gaps = self.find_coverage_gaps(requested_start, requested_end, existing_summaries, request_data)
@@ -98,7 +102,8 @@ class ChatSummaryHandler():
                     else:
                         await opensips_db_handler.insert_chat_summary_into_db(response_data["message"], requested_start, requested_end, request_data)
 
-                response_data["message"] = response_data["message"].replace(requested_user_name, "you")
+                if requested_user_name:
+                    response_data["message"] = response_data["message"].replace(requested_user_name, "you")
                 logger.info(f"Updated chat summary :: {response_data['message']}, agentid :: {request_data.get('agentid')}")
 
             response_data["request_params"] = request_params
@@ -109,10 +114,10 @@ class ChatSummaryHandler():
             logger.info(f"Error :: {str(e)}, agentid : {request_data.get('agentid')} ")
             return {"status": status.HTTP_500_INTERNAL_SERVER_ERROR, "error": str(e), "msg": "Failed"}
 
-    def find_coverage_gaps(self, requested_start: str, requested_end: str, existing_summaries: list[StoredChatSummaryData], request_data: dict) -> list[dict]:
+    def find_coverage_gaps(self, requested_start: datetime, requested_end: datetime, existing_summaries: list[StoredChatSummaryData], request_data: dict) -> list[dict]:
         """Returns all date ranges within [requested_start, requested_end] NOT covered by any existing summary."""
         try:
-            intervals: list[tuple[str, str]] = []
+            intervals: list[tuple[datetime, datetime]] = []
             for s in existing_summaries:
                 clipped_start = max(s.start_date, requested_start)
                 clipped_end = min(s.end_date, requested_end)
@@ -120,7 +125,7 @@ class ChatSummaryHandler():
                     intervals.append((clipped_start, clipped_end))
 
             intervals.sort(key=lambda x: x[0])
-            merged: list[tuple[str, str]] = []
+            merged: list[tuple[datetime, datetime]] = []
             for start, end in intervals:
                 if merged and start <= merged[-1][1]:
                     merged[-1] = (merged[-1][0], max(merged[-1][1], end))
@@ -245,27 +250,31 @@ class ChatSummaryHandler():
             if nlp_response.message_count or nlp_response.unread_messages:
                 user_chats.reverse()
 
-            conversations: list[dict] = []
-            chat: StreamsUserChatData
+            sid = str(request_data.get("sid") or "").strip()
+            agentid = str(request_data.get("agentid") or "").strip()
+            folder_name = f"{sid}{agentid}".strip()
+            target_dir = (TEMP_ATTACHMENT_DIR / folder_name) if folder_name else (TEMP_ATTACHMENT_DIR / f"temp_{agentid}")
 
-            for chat in user_chats:
-                conversations.append({
-                    "timestamp": chat.messagetime.strftime("%Y-%m-%d %H:%M:%S"),
-                    "user": f"{chat.firstname} {chat.lastname}".strip() or utils.extract_user_name(chat.username),
-                    "message": chat.message
-                })
+            try:
+                conversations = await process_messages_attachments(
+                    user_chats=user_chats,
+                    request_data=request_data,
+                    target_dir=target_dir,
+                    max_concurrent=5,
+                )
 
-            conversations = filter_conversations(conversations)
+                if not conversations:
+                    logger.info(f"No valid conversations remaining after filtering noise, agentid : {request_data.get('agentid')}")
+                    return None
 
-            if not conversations:
-                logger.info(f"No valid conversations remaining after filtering noise, agentid : {request_data.get('agentid')}")
-                return None
+                logger.info(f"length of conversations :: {len(conversations)}, agentid : {request_data.get('agentid')}")
 
-            logger.info(f"length of conversations :: {len(conversations)}, agentid : {request_data.get('agentid')}")
-
-            chat_data = {"conversations": conversations}
-            self.append_user_instructions(chat_data, nlp_response, request_data)
-            return chat_data
+                chat_data = {"conversations": conversations}
+                self.append_user_instructions(chat_data, nlp_response, request_data)
+                return chat_data
+            finally:
+                if target_dir.exists():
+                    shutil.rmtree(target_dir, ignore_errors=True)
 
         except Exception as e:
             logger.error(f"Error ========  :: {e}, agentid :: {request_data.get('agentid')}")
@@ -273,7 +282,6 @@ class ChatSummaryHandler():
 
     async def generate_chat_summary(self, request_data):
         try:
-
             total_content = str(json.dumps(request_data['user_query'], indent=4) + request_data["instructions"])
 
             await validate_token_limits(total_content, request_data)

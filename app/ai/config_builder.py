@@ -1,22 +1,10 @@
-"""Builds per-feature AI request configuration (model, instructions, temperature,
-max tokens) from `app.ai.registry` (model catalog) and `app.ai.prompts.*` (per-feature
-instruction text).
-
-Moved out of the old `providers/open_ai/ai_configurator.py` — this logic decides
-*what* to ask for, which is provider-agnostic, not *how* to call a particular
-vendor's API, so it doesn't belong under a provider-specific package.
-
-Note: the old version's `load_ai_system_settings` (DB + local-file cache) has moved to
-`app.ai.settings_cache` — it wasn't actually called by any of the four `prepare_*`
-methods below (they all read directly from the `app.ai.prompts.*` constants), so
-nothing here depends on it.
-"""
 
 import logging
 from datetime import datetime
 
-from app.ai import constants as ai_constants
+from app.ai import ai_constants
 from app.ai import registry
+from app.ai.ai_constants import ThreadCategory
 from app.ai.prompts import chat_summary, intent_detection, reply_to_thread, upgrade_user_chat
 
 logger = logging.getLogger(__name__)
@@ -104,17 +92,47 @@ class AIConfigBuilder:
             logger.error(f"Error :: {e}")
             return None
 
-    async def prepare_reply_to_thread_config(self):
+    async def prepare_process_thread_config(self, category: ThreadCategory | str):
         try:
-            cfg = reply_to_thread.REPLY_TO_THREAD_CONSTANTS
+            if category == ThreadCategory.SUMMARIZE:
+                cfg = chat_summary.CHAT_SUMMARY_CONSTANTS
+            elif category == ThreadCategory.GENERATE_REPLY:
+                cfg = reply_to_thread.REPLY_TO_THREAD_CONSTANTS
+            else:
+                raise ValueError(f"Invalid category :: {category}")
 
-            reply_to_thread_info = {
+            process_thread_info = {
                 **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4_1_MINI),
-                "operation_type": ai_constants.OPERATION_REPLY_TO_THREAD,
+                "operation_type": ai_constants.OPERATION_PROCESS_THREAD,
             }
 
-            logger.info(f"reply_to_thread_info :: \n{reply_to_thread_info}")
-            return reply_to_thread_info
+            logger.info(f"process_thread_info :: \n{process_thread_info}")
+            return process_thread_info
+
+        except Exception as e:
+            logger.error(f"Error :: {e}")
+            return None
+
+    async def prepare_general_query_config(self):
+        try:
+            cfg = intent_detection.GENERAL_QUERY_CONSTANTS
+
+            general_query_info = {
+                **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4_1_MINI),
+                "tools": cfg.get("tools", [{"type": "web_search"}]),
+                "tool_choice": cfg.get("tool_choice"),
+                "parallel_tool_calls": cfg.get("parallel_tool_calls"),
+                "operation_type": ai_constants.OPERATION_GENERAL_QUERY,
+            }
+
+            now_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            general_query_info["instructions"] = (
+                f"CURRENT CONTEXT:\n- current_datetime: {now_datetime}\n\n"
+                + general_query_info["instructions"]
+            )
+
+            logger.info(f"general_query_info :: \n{general_query_info}")
+            return general_query_info
 
         except Exception as e:
             logger.error(f"Error :: {e}")

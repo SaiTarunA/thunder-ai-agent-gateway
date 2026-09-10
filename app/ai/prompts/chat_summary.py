@@ -70,6 +70,7 @@ Use valid Markdown to make the response structured, readable, and visually appea
 - Never add Markdown elements merely to make a simple summary appear longer.
 
 ## Output Rules
+- Put your best to make the output in 'markdown' format and when ever your using person name for highlighting always put it in **bold** and also avoid mid-word bold but never keep the person name in double quotes.
 - Follow the requested format and summary type strictly.
 - Apply the requested tone while preserving factual accuracy.
 - Keep the same language as the conversation unless another language is requested.
@@ -160,6 +161,7 @@ Use valid Markdown to make the result clear, structured, and visually appealing 
 - Never add Markdown merely to lengthen or complicate a simple summary.
 
 ## Output Rules
+- Put your best to make the output in 'markdown' format and when ever your using person name for highlighting always put it in **bold** and also avoid mid-word bold but never keep the person name in double quotes.
 - Follow the requested summary type, format, and tone strictly.
 - Keep the same language as the supplied content unless another language is requested.
 - Produce one unified summary, not separate summaries for individual segments.

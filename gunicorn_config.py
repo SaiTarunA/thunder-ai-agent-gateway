@@ -1,6 +1,6 @@
 import multiprocessing
 import psutil
-from app.core.log import LOG_FILE_PATH
+from app.core.log import LOG_FILE_PATH, pidfile
 
 cpu_count = multiprocessing.cpu_count()
 total_mem_mb = psutil.virtual_memory().total // (1024 ** 2) # Memory in MB
@@ -24,3 +24,4 @@ loglevel = "info"
 accesslog = LOG_FILE_PATH      
 errorlog = LOG_FILE_PATH    
 capture_output = True
+pidfile = pidfile

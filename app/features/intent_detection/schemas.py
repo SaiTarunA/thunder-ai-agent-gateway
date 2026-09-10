@@ -16,10 +16,10 @@ their raw, unvalidated arguments dict passed straight through.
 """
 
 from typing import Literal, Optional
-
+from enum import StrEnum
 from pydantic import BaseModel, Field
 
-from app.ai import constants as ai_constants
+from app.ai import ai_constants
 from app.features.chat_summary.schemas import SummaryNLPExtractedData
 
 
@@ -29,6 +29,8 @@ class LunaRequest(BaseModel):
     sitename: str = Field(..., description="The name of the site making the request")
     user_name: Optional[str] = Field(None, description="Name of the user")
     archiveid: Optional[str] = Field(None, description="The archive ID of the user")
+    x_auth_token: Optional[str] = Field(None, description="The x-auth token of the user")
+    authkey: Optional[str] = Field(None, description="The authkey of the user")
     sid: Optional[str] = Field(None, description="The chat ID of the conversation")
     smsgid: Optional[str] = Field(None, description="The message ID of the chat")
     user_query: str = Field(..., description="The user query")
@@ -40,12 +42,22 @@ class UpgradeUserChatArgs(BaseModel):
     """No parameters — the model calls this tool with an empty argument object."""
 
 
-class ReplyToThreadArgs(BaseModel):
-    """No parameters — the model calls this tool with an empty argument object."""
+# Alias for backward compatibility
+ThreadArgs = ai_constants.ThreadCategory
+
+
+class ProcessThreadArgs(BaseModel):
+    category: Literal[
+        ai_constants.ThreadCategory.SUMMARIZE,
+        ai_constants.ThreadCategory.GENERATE_REPLY,
+    ] = Field(..., description="Category of the thread request: 'summarize' or 'generate_reply'")
 
 
 class GeneralQueryArgs(BaseModel):
-    message: str = Field(..., description="The response for the user requested general query.")
+    message: str = Field(
+        ...,
+        description="The complete, direct, and substantive final answer to the user's query. Never a placeholder, status message, or meta-statement like 'i process your request by websearch tool'.",
+    )
 
 
 class ClarifyUserQueryArgs(BaseModel):
@@ -91,15 +103,15 @@ INTENT_TOOL_SCHEMAS: dict[str, tuple[type[BaseModel], str]] = {
     ),
     ai_constants.FUNCTION_UPGRADE_USER_CHAT: (
         UpgradeUserChatArgs,
-        "Route an existing user-written draft for grammar correction, clarity improvement, tone adjustment, length adjustment, or Markdown reformatting. Also acts as the fallback for a coherent standalone outgoing message when no clearer intent applies. Do not use for new content generation or replies that depend on another person's message.",
+        "Route ONLY when the user explicitly asks to edit, rewrite, rephrase, polish, format, or adjust the tone of a message draft, or sends a standalone outgoing communication draft intended for a recipient (e.g. 'hey can u send the file'). DO NOT use if the user is asking a question or seeking information, even if their question contains grammatical errors, spelling mistakes, or typos.",
     ),
-    ai_constants.FUNCTION_REPLY_TO_THREAD: (
-        ReplyToThreadArgs,
-        "Route requests to compose a new reply based on a selected message, selected thread, quoted message, or current message context. An existing thread is not required; this also supports creating the first reply to a top-level message. Do not use when the user already supplied a reply draft and only wants it improved you won't get messages in this stage so please consider if user want to reply to message in a thread or chat please trigger this function.",
+    ai_constants.FUNCTION_PROCESS_THREAD: (
+        ProcessThreadArgs,
+        f"Route to a response composed to someone else's message or summarise the entire thread, using a selected message, thread, quote, or current message. A thread is not required; this covers the first reply to a top-level message as well thread summary request. If the user already wrote the reply and wants it improved, use upgrade instead. A new standalone message that is not a reply goes to general query. and user wants to summarise the thread please trigger {ai_constants.FUNCTION_PROCESS_THREAD} with category as 'summarize' or generate reply use 'generate_reply'. Note: here you would not know which message or thread the user wants to reply to message please tigger this later we'll collect those deatils and generate reply in that context so if user want to reply to message in a thread or chat please trigger this function.",
     ),
     ai_constants.FUNCTION_GENERAL_QUERY: (
         GeneralQueryArgs,
-        "Route answerable general requests, including factual and current-information questions, explanations, coding, debugging, how-to guidance, calculations, translation, summarization of directly pasted non-chat text, content generation, advice, recommendations, and normal conversation. The downstream pipeline, not the intent router, produces the answer and performs any required external lookup.",
+        "Route all answerable questions, inquiries, knowledge requests, current events, coding, explanations, and conversation — including any question with grammatical errors or typos. You must provide the complete, direct, and final answer in the 'message' argument. For real-time or current topics, use web_search first and put the actual final answer in 'message'. Never return meta-responses, status messages, or placeholders.",
     ),
     ai_constants.FUNCTION_CLARIFY_USER_QUERY: (
         ClarifyUserQueryArgs,

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<report>
+  <region name="us-east-1">
+    <nodes>120</nodes>
+    <utilization>0.72</utilization>
+    <status>Healthy</status>
+  </region>
+  <region name="us-west-2">
+    <nodes>95</nodes>
+    <utilization>0.61</utilization>
+    <status>Healthy</status>
+  </region>
+</report>

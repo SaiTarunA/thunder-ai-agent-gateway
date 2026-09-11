@@ -1,0 +1,215 @@
+{
+  "description": "Structural ground truth for simple.md / simple.docx / simple.pdf / simple.html. The image fixtures (simple.png / simple.jpeg) carry only a subset -- see image_subset. All three encode identical content, so any per-format difference in extraction output is a property of the parser, not the fixture.",
+  "title": "Quarterly Infrastructure Report",
+  "counts": {
+    "headings": 5,
+    "headings_excluding_title": 4,
+    "paragraphs": 7,
+    "lists": 2,
+    "list_items": 7,
+    "tables": 1,
+    "table_cells": 20
+  },
+  "headings": [
+    {
+      "level": 1,
+      "text": "Quarterly Infrastructure Report"
+    },
+    {
+      "level": 2,
+      "text": "Overview"
+    },
+    {
+      "level": 3,
+      "text": "Scope"
+    },
+    {
+      "level": 2,
+      "text": "Capacity by Region"
+    },
+    {
+      "level": 2,
+      "text": "Next Steps"
+    }
+  ],
+  "paragraphs": [
+    "This report summarizes platform capacity, notable changes, and planned work for the third quarter. It is intended for the infrastructure team and their partners in product engineering.",
+    "Total cluster capacity grew by 18 percent this quarter, driven mainly by the expansion of the eu-central-1 region. Request volume grew faster, at 26 percent, so average utilization rose despite the added hardware.",
+    "No customer-visible outages were recorded. Two internal incidents were raised, both resolved within the same working day, and neither breached the error budget.",
+    "The figures below cover managed compute only. Object storage, the data warehouse, and third-party services are reported separately and are out of scope for this document.",
+    "The table below shows node counts and average utilization for the final week of the quarter. Utilization is measured as mean CPU allocation during business hours.",
+    "Three actions are proposed for the coming quarter, in priority order.",
+    "Questions and corrections should go to the platform team. A detailed cost breakdown is available on request."
+  ],
+  "lists": [
+    {
+      "ordered": false,
+      "item_count": 4,
+      "items": [
+        "Managed compute across all four production regions",
+        "Scheduled batch workloads running on shared nodes",
+        "Internal staging clusters, excluding developer sandboxes",
+        "Reserved capacity held for failover"
+      ]
+    },
+    {
+      "ordered": true,
+      "item_count": 3,
+      "items": [
+        "Add twelve nodes to eu-central-1 before the end of month one.",
+        "Migrate batch workloads off ap-south-1 and consolidate them in us-west-2.",
+        "Review reserved failover capacity, which has not been exercised in three quarters."
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "rows": 5,
+      "cols": 4,
+      "header": [
+        "Region",
+        "Nodes",
+        "Utilization",
+        "Status"
+      ],
+      "body": [
+        [
+          "us-east-1",
+          "48",
+          "72%",
+          "Healthy"
+        ],
+        [
+          "us-west-2",
+          "32",
+          "64%",
+          "Healthy"
+        ],
+        [
+          "eu-central-1",
+          "24",
+          "88%",
+          "At capacity"
+        ],
+        [
+          "ap-south-1",
+          "16",
+          "41%",
+          "Underused"
+        ]
+      ]
+    }
+  ],
+  "metadata_title": {
+    "comment": "DOCX, PDF and HTML all carry the title in a metadata channel as well as in the body. Markdown has no metadata channel. Read it from the metadata, not the body, or the title will be counted twice.",
+    "docx": "docProps/core.xml -> dc:title",
+    "pdf": "/Title in the document info dictionary",
+    "html": "<title> in <head>",
+    "md": null,
+    "value": "Quarterly Infrastructure Report"
+  },
+  "image_subset": {
+    "files": [
+      "simple.png",
+      "simple.jpeg"
+    ],
+    "contains": [
+      "title",
+      "paragraph",
+      "table"
+    ],
+    "omits": [
+      "all H2 and H3 headings",
+      "the other six paragraphs",
+      "both lists"
+    ],
+    "title": "Quarterly Infrastructure Report",
+    "paragraph": "This report summarizes platform capacity, notable changes, and planned work for the third quarter. It is intended for the infrastructure team and their partners in product engineering.",
+    "table": {
+      "rows": 5,
+      "cols": 4,
+      "header": [
+        "Region",
+        "Nodes",
+        "Utilization",
+        "Status"
+      ],
+      "body": [
+        [
+          "us-east-1",
+          "48",
+          "72%",
+          "Healthy"
+        ],
+        [
+          "us-west-2",
+          "32",
+          "64%",
+          "Healthy"
+        ],
+        [
+          "eu-central-1",
+          "24",
+          "88%",
+          "At capacity"
+        ],
+        [
+          "ap-south-1",
+          "16",
+          "41%",
+          "Underused"
+        ]
+      ]
+    },
+    "expected_text": [
+      "Quarterly Infrastructure Report",
+      "This report summarizes platform capacity, notable changes, and planned work for the third quarter. It is intended for the infrastructure team and their partners in product engineering.",
+      "Region",
+      "Nodes",
+      "Utilization",
+      "Status",
+      "us-east-1",
+      "48",
+      "72%",
+      "Healthy",
+      "us-west-2",
+      "32",
+      "64%",
+      "Healthy",
+      "eu-central-1",
+      "24",
+      "88%",
+      "At capacity",
+      "ap-south-1",
+      "16",
+      "41%",
+      "Underused"
+    ],
+    "render": {
+      "dimensions_px": {
+        "width": 1182,
+        "height": 626
+      },
+      "dpi": 200,
+      "source": "reportlab PDF rasterized with pdftoppm, then autocropped",
+      "png": "lossless RGB",
+      "jpeg": "quality 95, subsampling 0 (4:4:4), same pixel buffer as the PNG",
+      "replica": "Same dimensions and same layout. Not pixel-identical -- JPEG is lossy: ~19% of pixels differ, max channel delta 9, mean 0.21."
+    },
+    "ocr_baseline": {
+      "engine": "tesseract 5.3.4, --psm 6",
+      "png": "exact match against expected_text after normalization",
+      "jpeg": "exact match against expected_text after normalization",
+      "comment": "Both images OCR cleanly at this tier, so a wrong result is the pipeline, not the fixture. Note that OCR returns text only -- recovering the 5x4 table shape needs layout analysis, so expect the tables column to be empty for these two rows unless the extractor does table detection on images."
+    }
+  },
+  "notes": {
+    "heading_depth": "H1 title, three H2 sections, one H3 subsection.",
+    "pdf_pages": 1,
+    "pdf_tables": "Ruled with a full grid, so line-based detectors (pdfplumber) find it without strategy tuning.",
+    "text_parity": "Normalized prose (lowercased, punctuation and list markers stripped, table cells removed) is identical across all four files: 1534 characters each.",
+    "html_semantics": "Semantic tags only -- h1/h2/h3, p, ul, ol, table with thead/tbody. No CSS, no scripts, no nav or footer chrome, no wrapper div. Body cells are all <td>, matching the header-row-only shape of the other three.",
+    "html_title_tripwire": "A regex tag-stripper will pull <title> into the body text and report the title twice. Parse the DOM and read <body>, or take the title from metadata. This is deliberate -- it catches naive extraction paths.",
+    "encoding": "ASCII only, except the bullet glyph the DOCX/PDF renderers emit for unordered list items."
+  }
+}

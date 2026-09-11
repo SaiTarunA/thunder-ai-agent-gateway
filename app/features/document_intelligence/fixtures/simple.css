@@ -1,0 +1,20 @@
+/* Quarterly infrastructure report card styling. */
+
+.region-card {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 1rem;
+}
+
+.region-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.region-card--healthy {
+  border-color: #2e7d32;
+}
+
+.region-card--at-capacity {
+  border-color: #c62828;
+}

@@ -1,0 +1,7 @@
+Quarterly Infrastructure Report
+
+This report summarizes platform capacity, notable changes, and planned work for the third quarter. It is intended for the infrastructure team and their partners in product engineering.
+
+Total cluster capacity grew by 18 percent this quarter, driven primarily by expansion in the eu-central-1 region. No customer-visible outages were recorded.
+
+Three actions are proposed for the coming quarter: add twelve nodes to eu-central-1, migrate batch workloads off ap-south-1, and review reserved failover capacity.

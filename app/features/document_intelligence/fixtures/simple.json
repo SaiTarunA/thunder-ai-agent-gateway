@@ -1,0 +1,7 @@
+{
+  "region": "us-east-1",
+  "nodes": 120,
+  "utilization": 0.72,
+  "status": "Healthy",
+  "tags": ["production", "primary"]
+}

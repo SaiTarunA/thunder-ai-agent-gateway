@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Quarterly Infrastructure Report</title>
+  <meta name="description" content="Benchmark fixture: title, headings, paragraphs, lists, table.">
+  <meta name="author" content="document_intelligence benchmarks">
+</head>
+<body>
+  <h1>Quarterly Infrastructure Report</h1>
+  <p>This report summarizes platform capacity, notable changes, and planned work for the third quarter. It is intended for the infrastructure team and their partners in product engineering.</p>
+
+  <h2>Overview</h2>
+  <p>Total cluster capacity grew by 18 percent this quarter, driven mainly by the expansion of the eu-central-1 region. Request volume grew faster, at 26 percent, so average utilization rose despite the added hardware.</p>
+  <p>No customer-visible outages were recorded. Two internal incidents were raised, both resolved within the same working day, and neither breached the error budget.</p>
+
+  <h3>Scope</h3>
+  <p>The figures below cover managed compute only. Object storage, the data warehouse, and third-party services are reported separately and are out of scope for this document.</p>
+  <ul>
+    <li>Managed compute across all four production regions</li>
+    <li>Scheduled batch workloads running on shared nodes</li>
+    <li>Internal staging clusters, excluding developer sandboxes</li>
+    <li>Reserved capacity held for failover</li>
+  </ul>
+
+  <h2>Capacity by Region</h2>
+  <p>The table below shows node counts and average utilization for the final week of the quarter. Utilization is measured as mean CPU allocation during business hours.</p>
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Region</th>
+        <th scope="col">Nodes</th>
+        <th scope="col">Utilization</th>
+        <th scope="col">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>us-east-1</td>
+        <td>48</td>
+        <td>72%</td>
+        <td>Healthy</td>
+      </tr>
+      <tr>
+        <td>us-west-2</td>
+        <td>32</td>
+        <td>64%</td>
+        <td>Healthy</td>
+      </tr>
+      <tr>
+        <td>eu-central-1</td>
+        <td>24</td>
+        <td>88%</td>
+        <td>At capacity</td>
+      </tr>
+      <tr>
+        <td>ap-south-1</td>
+        <td>16</td>
+        <td>41%</td>
+        <td>Underused</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Next Steps</h2>
+  <p>Three actions are proposed for the coming quarter, in priority order.</p>
+  <ol>
+    <li>Add twelve nodes to eu-central-1 before the end of month one.</li>
+    <li>Migrate batch workloads off ap-south-1 and consolidate them in us-west-2.</li>
+    <li>Review reserved failover capacity, which has not been exercised in three quarters.</li>
+  </ol>
+  <p>Questions and corrections should go to the platform team. A detailed cost breakdown is available on request.</p>
+</body>
+</html>

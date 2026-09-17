@@ -6,6 +6,7 @@ from app.ai import ai_constants
 from app.ai import registry
 from app.ai.ai_constants import ThreadCategory
 from app.ai.prompts import chat_summary, intent_detection, reply_to_thread, upgrade_user_chat
+from app.features.intent_detection.schemas import WEB_SEARCH_TOOL
 
 logger = logging.getLogger(__name__)
 
@@ -94,17 +95,28 @@ class AIConfigBuilder:
 
     async def prepare_process_thread_config(self, category: ThreadCategory | str):
         try:
+            tools = []
             if category == ThreadCategory.SUMMARIZE:
                 cfg = chat_summary.CHAT_SUMMARY_CONSTANTS
             elif category == ThreadCategory.GENERATE_REPLY:
                 cfg = reply_to_thread.REPLY_TO_THREAD_CONSTANTS
+                tools = cfg.get("tools", [WEB_SEARCH_TOOL])
             else:
                 raise ValueError(f"Invalid category :: {category}")
 
             process_thread_info = {
                 **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4_1_MINI),
+                "tools": tools,
+                "tool_choice": cfg.get("tool_choice"),
+                "parallel_tool_calls": cfg.get("parallel_tool_calls", False),
                 "operation_type": ai_constants.OPERATION_PROCESS_THREAD,
             }
+
+            now_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            process_thread_info["instructions"] = (
+                f"CURRENT CONTEXT:\n- current_utc_datetime: {now_datetime}\n\n"
+                + process_thread_info["instructions"]
+            )
 
             logger.info(f"process_thread_info :: \n{process_thread_info}")
             return process_thread_info

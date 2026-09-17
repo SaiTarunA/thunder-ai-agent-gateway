@@ -9,6 +9,7 @@ from app.ai.config_builder import ai_config_builder
 from app.ai.ai_constants import ThreadCategory
 from app.ai.router import model_router
 from app.ai.tokenizer import validate_token_limits
+from app.core.utils import utils
 from app.db.mysql.repositories.streams_repo import streams_db_handler
 from app.features.chat_summary.schemas import StreamsUserChatData
 from app.features.intent_detection.schemas import ProcessThreadArgs, ThreadArgs
@@ -62,15 +63,56 @@ class GeneralChatHandler():
 
             conversations = await self.collect_thread_messages(request_data)
 
-            action_hint = "summarize the thread" if category == ThreadCategory.SUMMARIZE else "answer/reply to the user query"
-            
-            thread_data["user_query"] = f"{thread_data['user_query']}\nThe Following are the conversations that took place in the thread which helps you to {action_hint} :: {conversations}"
+            if category == ThreadCategory.SUMMARIZE:
+                thread_data["user_query"] = (
+                    f"{thread_data['user_query']}\n"
+                    f"The Following are the conversations that took place in the thread which helps you to summarize the thread :: {conversations}"
+                )
+            else:
+                current_user = request_data.get("user_name") or request_data.get("agentid") or "User"
+                user_req = thread_data.get("user_query") or ""
+                thread_data["user_query"] = (
+                    f"current_user: {current_user}\n"
+                    f"user_request: {user_req}\n\n"
+                    f"The following are the messages in the thread in chronological order:\n{conversations}\n\n"
+                    f"Generate the appropriate, sendable reply as {current_user}. "
+                    f"If answering the thread requires current knowledge, latest events, real-time facts, or external documentation, "
+                    f"use the web_search tool to look up accurate information and incorporate it directly into the reply without any meta-talk."
+                )
 
             total_content = str(f"{thread_data['user_query']}\n{thread_data['instructions']}")
             await validate_token_limits(total_content, thread_data)
 
             response = await model_router.generate(thread_data)
             message = response.text or ""
+
+            if category == ThreadCategory.GENERATE_REPLY and utils.is_meta_response(message):
+                logger.warning(
+                    f"Meta-response detected in thread reply: '{message}', agentid :: {request_data.get('agentid')}. Retrying generation with reinforced instruction..."
+                )
+                retry_thread_data = thread_data.copy()
+                retry_thread_data["instructions"] = (
+                    f"{retry_thread_data['instructions']}\n\n"
+                    f"CRITICAL OVERRIDE: Your previous output was identified as a meta-announcement ('{message}'). "
+                    f"Do NOT output search announcements, status updates, or phrases like 'Searching...', 'Let me look that up...', or 'Based on my search...'. "
+                    f"You must directly return the finalized, substantive reply to be sent in the thread."
+                )
+                try:
+                    retry_response = await model_router.generate(retry_thread_data)
+                    retry_message = retry_response.text or ""
+                    if retry_message and not utils.is_meta_response(retry_message):
+                        logger.info(
+                            f"Retry succeeded for thread reply, new message length: {len(retry_message)}, agentid :: {request_data.get('agentid')}"
+                        )
+                        message = retry_message
+                    else:
+                        logger.warning(
+                            f"Retry still resulted in meta-response or empty: '{retry_message}', agentid :: {request_data.get('agentid')}"
+                        )
+                except Exception as retry_err:
+                    logger.error(
+                        f"Error during thread reply retry: {retry_err}, agentid :: {request_data.get('agentid')}"
+                    )
 
             logger.info(f"thread {category} message :: {message} and its length :: {len(message)}, agentid :: {str(request_data.get('agentid'))}")
 

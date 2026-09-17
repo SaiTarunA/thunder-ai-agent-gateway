@@ -18,32 +18,23 @@ logger = logging.getLogger(__name__)
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-JWT_ISSUER = os.getenv("JWT_ISSUER", "streams-ai-agent-gateway")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256").upper()
+JWT_ISSUER = os.getenv("JWT_ISSUER", "streams-agent-gateway")
 JWT_AUDIENCE = os.getenv("JWT_AUDIENCE", "ai-api")
 JWT_LEEWAY = int(os.getenv("JWT_LEEWAY", "10"))
 
 
-def _format_pem_key(key: str) -> str:
-    """Ensures literal escaped newlines '\\n' in environment variables are converted to actual newlines."""
-    if not key:
-        return ""
-    return key.replace("\\n", "\n").strip()
-
-
 class JWTManager:
     def __init__(self):
-        self.private_key_pem: str = _format_pem_key(os.getenv("JWT_PRIVATE_KEY", ""))
-        self.public_key_pem: str = _format_pem_key(os.getenv("JWT_PUBLIC_KEY", ""))
-
-        if not self.private_key_pem or not self.public_key_pem:
+        if not JWT_SECRET_KEY:
             logger.warning(
-                "JWT_PRIVATE_KEY or JWT_PUBLIC_KEY environment variable is missing. "
-                "Ensure RS256 RSA keys are set in .env file."
+                "JWT_SECRET_KEY environment variable is missing. "
+                "Ensure JWT_SECRET_KEY is set in .env file."
             )
 
     def create_access_token(self, user_id: str, extra_claims: Optional[dict] = None) -> str:
         """
-        Creates a short-lived RS256 JWT access token.
+        Creates a short-lived HS256 JWT access token (~247 bytes).
         Claims: sub, type, iss, aud, iat, exp
         """
         now = int(time.time())
@@ -63,20 +54,20 @@ class JWTManager:
 
         encoded_jwt = jwt.encode(
             payload,
-            self.private_key_pem,
-            algorithm="RS256"
+            JWT_SECRET_KEY,
+            algorithm=JWT_ALGORITHM
         )
         return encoded_jwt
 
     def decode_access_token(self, token: str) -> Optional[dict]:
         """
-        Decodes and verifies an RS256 JWT access token.
-        Checks signature using public key, expiration, issuer, audience, and type.
+        Decodes and verifies an HS256 JWT access token.
+        Checks signature, expiration, issuer, audience, and type.
         """
         payload = jwt.decode(
             token,
-            self.public_key_pem,
-            algorithms=["RS256"],
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
             audience=JWT_AUDIENCE,
             issuer=JWT_ISSUER,
             leeway=JWT_LEEWAY,

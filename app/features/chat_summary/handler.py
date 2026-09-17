@@ -2,7 +2,7 @@ import json
 import logging
 import shutil
 from datetime import datetime, timedelta
-
+import re
 from fastapi import status
 from pydantic import TypeAdapter
 
@@ -65,7 +65,8 @@ class ChatSummaryHandler():
                         if s.start_date == requested_start and s.end_date == requested_end:
                             logger.info(f"A summary covering the entire requested range already exists, returning cached summary. agentid: {request_data.get('agentid')}")
                             if requested_user_name:
-                                s.summary = s.summary.replace(requested_user_name, "you")
+                                pattern = rf"\b{re.escape(requested_user_name)}\b"
+                                s.summary = re.sub(pattern, "you", s.summary, flags=re.IGNORECASE)
                             return {"status": status.HTTP_200_OK, "msg": "Success", "message": s.summary}
 
                     gaps = self.find_coverage_gaps(requested_start, requested_end, existing_summaries, request_data)
@@ -103,7 +104,8 @@ class ChatSummaryHandler():
                         await opensips_db_handler.insert_chat_summary_into_db(response_data["message"], requested_start, requested_end, request_data)
 
                 if requested_user_name:
-                    response_data["message"] = response_data["message"].replace(requested_user_name, "you")
+                    pattern = rf"\b{re.escape(requested_user_name)}\b"
+                    response_data["message"] = re.sub(pattern, "you", response_data["message"], flags=re.IGNORECASE)
                 logger.info(f"Updated chat summary :: {response_data['message']}, agentid :: {request_data.get('agentid')}")
 
             response_data["request_params"] = request_params

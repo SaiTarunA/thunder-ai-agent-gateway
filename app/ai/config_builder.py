@@ -1,6 +1,6 @@
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.ai import ai_constants
 from app.ai import registry
@@ -45,10 +45,10 @@ class AIConfigBuilder:
                 "operation_type": ai_constants.OPERATION_INTENT_DETECTION,
             }
 
-            now_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             # Prepend at the TOP so it sets authoritative context for all prompt rules below.
             intent_detection_info["instructions"] = (
-                f"CURRENT CONTEXT:\n- current_datetime: {now_datetime}\n\n"
+                f"CURRENT CONTEXT:\n- current_utc_datetime: {now_datetime}\n\n"
                 + intent_detection_info["instructions"]
             )
 
@@ -125,9 +125,9 @@ class AIConfigBuilder:
                 "operation_type": ai_constants.OPERATION_GENERAL_QUERY,
             }
 
-            now_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             general_query_info["instructions"] = (
-                f"CURRENT CONTEXT:\n- current_datetime: {now_datetime}\n\n"
+                f"CURRENT CONTEXT:\n- current_utc_datetime: {now_datetime}\n\n"
                 + general_query_info["instructions"]
             )
 

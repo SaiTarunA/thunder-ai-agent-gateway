@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     def _unauthorized_response(self, request: Request, content: dict) -> JSONResponse:
         origin = request.headers.get("origin")
-        headers = {}
+        headers = {
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Requested-With, *",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, *",
+        }
         if origin:
             headers["Access-Control-Allow-Origin"] = origin
             headers["Access-Control-Allow-Credentials"] = "true"

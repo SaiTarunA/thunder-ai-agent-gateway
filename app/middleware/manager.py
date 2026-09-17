@@ -17,6 +17,11 @@ class MiddlewareManager:
             # Adding CORS middleware
             self.server.add_middleware(
                 CORSMiddleware,
+                allow_origins=[
+                    "http://localhost:5173",
+                    "http://localhost:3000",
+                    "http://127.0.0.1:5173",
+                ],
                 allow_origin_regex=r"https?://.*",
                 allow_credentials=True,
                 allow_methods=["*"],
@@ -26,6 +31,6 @@ class MiddlewareManager:
             # Adding authentication middlewares
             self.server.add_middleware(JWTAuthMiddleware)
 
-        except Exception:
-            logger.exception("Failed to register middlewares")
+        except Exception as e:
+            logger.exception(f"Failed to register middlewares :: {str(e)}")
             raise

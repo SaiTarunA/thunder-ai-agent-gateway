@@ -1,8 +1,8 @@
-from fastapi import APIRouter, status, Request
+from fastapi import APIRouter, status
 import logging
 
 from app.features.search.domain.models import SearchContextRequest
-from app.features.intent_detection.handler import intent_detection_handler
+from app.features.search.module import search_module
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,9 @@ async def info():
 
 
 @search_router.post("/context")
-async def context(request: SearchContextRequest, fastapi_request: Request):
+async def context(request: SearchContextRequest):
     try:
-        return await fastapi_request.app.state.search_module.search(request)
+        return await search_module.search(request)
     except Exception as e:
         logger.error(f"Error :: {e}")
         return {

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 
 from app.features.search.config import SearchConfig
 from app.features.search.domain.cursor import (
@@ -34,6 +35,8 @@ from app.features.search.providers.retriever.opensearch.retriever import (
     OpenSearchRetriever,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class SearchService:
 
@@ -64,6 +67,11 @@ class SearchService:
         self,
         request: SearchContextRequest,
     ):
+        logger.info(
+            f"search :: siteid :: {request.siteid}, archiveid :: {request.archiveid}, "
+            f"content_types :: {request.content_types}"
+        )
+
         processed_query = self._query_processor.process(
             request.query,
         )
@@ -71,6 +79,7 @@ class SearchService:
         site_id = int(request.siteid)
 
         if request.archiveid is None:
+            logger.error("search :: archiveid is required for search authorization")
             raise ValueError("archiveid is required for search authorization")
 
         archive_id = int(request.archiveid)
@@ -80,12 +89,22 @@ class SearchService:
             archive_id=archive_id,
         )
 
+        logger.debug(
+            f"search :: resolved access :: allowed_sids :: {access.allowed_sids}, "
+            f"contributor_thread_root_ids :: {access.contributor_thread_root_ids}"
+        )
+
         filters = self._filter_resolver.resolve(
             access=access,
             context_request=request,
         )
 
         plan = self._retrieval_planner.plan(request)
+
+        logger.debug(
+            f"search :: retrieval plan :: methods :: {plan.methods}, "
+            f"limit :: {plan.limit}, pagination_depth :: {plan.pagination_depth}"
+        )
 
         query_hash = self._query_hasher.hash(
             request,
@@ -106,9 +125,13 @@ class SearchService:
                 request=request,
             )
 
+            logger.debug("search :: cursor decoded and validated")
+
         query_vector = None
 
         if RetrievalMethodType.SEMANTIC in plan.methods:
+            logger.debug("search :: embedding query for semantic retrieval")
+
             query_vector = await self._embedding_provider.embed_text(
                 processed_query.embedding_query,
             )
@@ -124,6 +147,9 @@ class SearchService:
                     search_after = cursor.search_after[content_type]
 
                     if search_after is None:
+                        logger.debug(
+                            f"search :: content_type :: {content_type} exhausted, skipping"
+                        )
                         continue
                 else:
                     search_after = None
@@ -143,8 +169,15 @@ class SearchService:
                 search_after=search_after,
             )
 
+            logger.info(f"search :: retrieving content_type :: {content_type}")
+
             retrieval_result = await self._retriever.retrieve(
                 retrieval_request,
+            )
+
+            logger.debug(
+                f"search :: content_type :: {content_type}, "
+                f"candidates :: {len(retrieval_result.candidates)}"
             )
 
             results[content_type] = retrieval_result
@@ -160,6 +193,12 @@ class SearchService:
             plan=plan,
             search_after=next_search_after,
         )
+
+        logger.info(
+            f"search :: completed :: content_types :: {list(results.keys())}, "
+            f"has_next_cursor :: {next_cursor is not None}"
+        )
+
         return {
             "ok": True,
             "results": results,
@@ -196,17 +235,21 @@ class SearchService:
         request: SearchContextRequest,
     ) -> None:
         if cursor.query_hash != query_hash:
+            logger.warning("_validate_cursor :: cursor query_hash mismatch")
             raise ValueError("Search cursor does not match the current query")
 
         if cursor.sort != request.sort:
+            logger.warning("_validate_cursor :: cursor sort mismatch")
             raise ValueError("Search cursor sort does not match the current request")
 
         if cursor.sort_direction != request.sort_direction:
+            logger.warning("_validate_cursor :: cursor sort_direction mismatch")
             raise ValueError(
                 "Search cursor sort direction does not match the current request"
             )
 
         if cursor.pagination_depth != plan.pagination_depth:
+            logger.warning("_validate_cursor :: cursor pagination_depth mismatch")
             raise ValueError(
                 "Search cursor pagination depth does not match the current request"
             )

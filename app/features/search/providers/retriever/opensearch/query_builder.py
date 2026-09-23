@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -13,6 +14,8 @@ from app.features.search.domain.models import (
     SearchModifiers,
 )
 from app.features.search.providers.interfaces import SearchQueryBuilder
+
+logger = logging.getLogger(__name__)
 
 
 class OpenSearchQueryBuilder(SearchQueryBuilder):
@@ -46,6 +49,8 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
             body["search_after"] = list(
                 request.search_after
             )
+
+        logger.info(f"build :: content_type :: {request.content_type}, query body :: {body}")
 
         return body
 

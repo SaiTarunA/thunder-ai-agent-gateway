@@ -84,3 +84,5 @@ class SearchModule:
         )
 
         return await search_service.search(request)
+
+search_module = SearchModule()

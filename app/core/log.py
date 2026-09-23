@@ -1,4 +1,3 @@
-import fcntl
 import os
 import sys
 import glob
@@ -11,16 +10,45 @@ from queue import Queue
 from logging.handlers import QueueHandler, QueueListener
 import threading
 
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
-LOG_FILE_PATH = "/opt/StreamsAgentGateway_Logs/StreamsAgentGateway.log"
+
+if sys.platform == "win32":
+    LOG_FILE_PATH = os.path.join(
+        os.getcwd(),
+        "logs",
+        "StreamsAgentGateway.log",
+    )
+else:
+    LOG_FILE_PATH = "/opt/StreamsAgentGateway_Logs/StreamsAgentGateway.log"
 
 # Use a pidfile path in the same log directory to avoid /run permission issues
 pidfile = os.path.join(os.path.dirname(LOG_FILE_PATH), "gunicorn.pid")
 
 
+def _lock_file(file):
+    if sys.platform == "win32":
+        file.seek(0)
+        msvcrt.locking(file.fileno(), msvcrt.LK_LOCK, 1)
+    else:
+        fcntl.flock(file, fcntl.LOCK_EX)
+
+
+def _unlock_file(file):
+    if sys.platform == "win32":
+        file.seek(0)
+        msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(file, fcntl.LOCK_UN)
+
+
 # ---------------------------------------------------------------------------
 #  WatchedSizeAndTimedRotatingHandler — rotates on size OR midnight
 # ---------------------------------------------------------------------------
+
 
 class WatchedSizeAndTimedRotatingHandler(WatchedFileHandler):
     """
@@ -33,16 +61,16 @@ class WatchedSizeAndTimedRotatingHandler(WatchedFileHandler):
         self,
         filename: str,
         pidfile: str,
-        maxBytes: int = 30 * 1024 * 1024,   # 30 MB
+        maxBytes: int = 30 * 1024 * 1024,  # 30 MB
         backupCount: int = 7,
         encoding: str = "utf-8",
         delay: bool = False,
     ):
-        self.maxBytes    = maxBytes
+        self.maxBytes = maxBytes
         self.backupCount = backupCount
         self.gunicorn_pidfile = pidfile
         self._next_rollover = self._compute_next_midnight()
-        self._thread_lock   = threading.Lock()
+        self._thread_lock = threading.Lock()
 
         try:
             self._current_size = os.path.getsize(filename)
@@ -77,23 +105,31 @@ class WatchedSizeAndTimedRotatingHandler(WatchedFileHandler):
             self._lockfile_fd.write(str(self._next_rollover))
             self._lockfile_fd.flush()
         except OSError as e:
-            sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid {os.getpid()}] - Failed to persist rollover: {e}\n")
+            sys.stderr.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid {os.getpid()}] - Failed to persist rollover: {e}\n"
+            )
 
     def _ensure_lockfile_open(self):
         if self._lockfile_fd.closed:
             self._lockfile_fd = open(self._lockfile_path, "a+")
-            sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Reopened closed lockfile fd: {self._lockfile_path}")
+            sys.stderr.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Reopened closed lockfile fd: {self._lockfile_path}"
+            )
 
     # --- rotation logic ---
 
     @staticmethod
     def _compute_next_midnight() -> float:
         now = time.localtime()
-        return time.mktime((now.tm_year, now.tm_mon, now.tm_mday + 1, 0, 0, 0, 0, 0, -1))
+        return time.mktime(
+            (now.tm_year, now.tm_mon, now.tm_mday + 1, 0, 0, 0, 0, 0, -1)
+        )
 
     def _rotate_suffix(self, is_midnight: bool) -> str:
         if is_midnight:
-            return (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d_23-59-59")
+            return (datetime.datetime.now() - datetime.timedelta(days=1)).strftime(
+                "%Y-%m-%d_23-59-59"
+            )
         return datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     def _do_rotate(self, rotate_reason: str):
@@ -102,20 +138,26 @@ class WatchedSizeAndTimedRotatingHandler(WatchedFileHandler):
             self.stream.close()
             self.stream = None
 
-        is_time_rotation = (rotate_reason == "time")
+        is_time_rotation = rotate_reason == "time"
         suffix = self._rotate_suffix(is_time_rotation)
         rotated_name = f"{self.baseFilename}.{suffix}"
         rotated = False
 
         if os.path.exists(rotated_name):
-            sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Rotation already done by another worker: {rotated_name}, skipping backup.\n")
+            sys.stderr.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Rotation already done by another worker: {rotated_name}, skipping backup.\n"
+            )
         else:
             try:
                 os.rename(self.baseFilename, rotated_name)
-                sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Rotating log file: {self.baseFilename} → {rotated_name}\n")
+                sys.stderr.write(
+                    f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Rotating log file: {self.baseFilename} → {rotated_name}\n"
+                )
                 rotated = True
             except FileNotFoundError:
-                sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Race on rename — another worker already rotated.\n")
+                sys.stderr.write(
+                    f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Race on rename — another worker already rotated.\n"
+                )
 
         if rotated:
             self._notify_gunicorn_reopen()
@@ -123,7 +165,9 @@ class WatchedSizeAndTimedRotatingHandler(WatchedFileHandler):
         if is_time_rotation:
             self._next_rollover = self._compute_next_midnight()
             self._persist_rollover_to_lockfile()
-            sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - next rollover will be at : {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self._next_rollover))}\n")
+            sys.stderr.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - next rollover will be at : {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self._next_rollover))}\n"
+            )
 
         self._cleanup_old_backups()
         self._current_size = 0
@@ -143,27 +187,39 @@ class WatchedSizeAndTimedRotatingHandler(WatchedFileHandler):
             backups = sorted(glob.glob(f"{self.baseFilename}.*"))
             backups = [b for b in backups if not b.endswith(".lock")]
             if len(backups) > self.backupCount:
-                for old_log in backups[:len(backups) - self.backupCount]:
+                for old_log in backups[: len(backups) - self.backupCount]:
                     try:
-                        sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Deleting old log backup: {old_log}\n")
+                        sys.stderr.write(
+                            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Deleting old log backup: {old_log}\n"
+                        )
                         os.remove(old_log)
                     except OSError:
                         pass
         except Exception as e:
-            sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Log cleanup error: {str(e)}\n")
+            sys.stderr.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Log cleanup error: {str(e)}\n"
+            )
 
     def _notify_gunicorn_reopen(self):
         try:
             with open(self.gunicorn_pidfile, "r") as f:
                 pid = int(f.read().splitlines()[0])
             os.kill(pid, signal.SIGUSR1)
-            sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Sent SIGUSR1 to Gunicorn master PID {pid}\n")
+            sys.stderr.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Sent SIGUSR1 to Gunicorn master PID {pid}\n"
+            )
         except FileNotFoundError:
-            sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Gunicorn pidfile not found: {self.gunicorn_pidfile}\n")
+            sys.stderr.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Gunicorn pidfile not found: {self.gunicorn_pidfile}\n"
+            )
         except ProcessLookupError:
-            sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Gunicorn master PID not running: {self.gunicorn_pidfile}\n")
+            sys.stderr.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Gunicorn master PID not running: {self.gunicorn_pidfile}\n"
+            )
         except Exception as e:
-            sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Failed to send SIGUSR1 to Gunicorn master: {e}\n")
+            sys.stderr.write(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Failed to send SIGUSR1 to Gunicorn master: {e}\n"
+            )
 
     def emit(self, record: logging.LogRecord):
         try:
@@ -178,16 +234,19 @@ class WatchedSizeAndTimedRotatingHandler(WatchedFileHandler):
                 return
 
             with self._thread_lock:
-                self._ensure_lockfile_open()
+                _lock_file(self._lockfile_fd)
                 try:
-                    fcntl.flock(self._lockfile_fd, fcntl.LOCK_EX)
                     self._sync_rollover_from_lockfile()
                     rotate_reason = self._should_rotate()
                     if rotate_reason:
-                        sys.stderr.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] - [pid:{os.getpid()}] - Rotating log due to '{rotate_reason}'\n")
+                        sys.stderr.write(
+                            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                            f"- [pid:{os.getpid()}] - "
+                            f"Rotating log due to '{rotate_reason}'\n"
+                        )
                         self._do_rotate(rotate_reason)
                 finally:
-                    fcntl.flock(self._lockfile_fd, fcntl.LOCK_UN)
+                    _unlock_file(self._lockfile_fd)
 
             super().emit(record)
             try:
@@ -201,7 +260,7 @@ class WatchedSizeAndTimedRotatingHandler(WatchedFileHandler):
     def close(self):
         try:
             if self._lockfile_fd and not self._lockfile_fd.closed:
-                fcntl.flock(self._lockfile_fd, fcntl.LOCK_UN)
+                _unlock_file(self._lockfile_fd)
                 self._lockfile_fd.close()
         except OSError:
             pass

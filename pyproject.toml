@@ -20,6 +20,7 @@ dependencies = [
     "odfdo>=3.25.0",
     "openai>=3.7.0",
     "openpyxl>=3.1.5",
+    "opensearch-py[async]>=3.2.0",
     "pandas>=3.0.5",
     "pyjwt>=2.13.0",
     "pymupdf>=1.28.2",
@@ -37,6 +38,8 @@ testpaths = ["app"]
 [dependency-groups]
 dev = [
     "ebooklib>=0.20",
+    "faker>=40.38.0",
     "odfpy>=1.4.1",
     "psutil>=7.2.2",
+    "sentence-transformers>=6.0.1",
 ]

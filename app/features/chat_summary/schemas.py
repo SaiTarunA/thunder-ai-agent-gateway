@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SummaryNLPExtractedData(BaseModel):
@@ -61,3 +61,12 @@ class StoredChatSummaryData(BaseModel):
     end_date: datetime
     sid: int
     extra_data: dict | str | None = None
+
+    @field_validator("start_date", "end_date", mode="after")
+    @classmethod
+    def ensure_utc(cls, v: datetime) -> datetime:
+        if v and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        elif v:
+            return v.astimezone(timezone.utc)
+        return v

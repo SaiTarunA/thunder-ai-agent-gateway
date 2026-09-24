@@ -3,6 +3,7 @@ import logging
 from app.db.mysql.connection.db_connector import db_connector
 import app.db.mysql.queries.streams_sql as queries
 from app.core.configs import mysql_config as db_config
+from app.core.utils import utils
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,11 @@ class StreamsDBHandler:
                         f"Missing 'start_date' or 'end_date' for duration chat lookup, agentid :: {request_data.get('agentid')}"
                     )
                     return []
-                params["param_start_date"] = start_date
-                params["param_end_date"] = end_date
+                user_timezone = request_data.get("timezone")
+                utc_start = utils.convert_to_utc(start_date, user_timezone)
+                utc_end = utils.convert_to_utc(end_date, user_timezone)
+                params["param_start_date"] = utc_start
+                params["param_end_date"] = utc_end
                 query = queries.DB_GET_STREAMS_USER_CHAT_BY_DURATION
 
             data = await db_connector.execute(

@@ -25,6 +25,7 @@ class CommonRequest(BaseModel):
         None, description="The x-auth token of the user"
     )
     authkey: Optional[str] = Field(None, description="The authkey of the user")
+    timezone: Optional[str] = Field(None, description="The timezone of the user")
 
 
 class SearchContext(BaseModel):

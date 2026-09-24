@@ -14,6 +14,7 @@ FUNCTION_PROCESS_THREAD = "process_thread"
 FUNCTION_GENERAL_QUERY = "general_query"
 FUNCTION_CLARIFY_USER_QUERY = "clarify_user_query"
 FUNCTION_DOCUMENT_INTELLIGENCE = "document_intellegence"
+FUNCTION_INTENT_SEARCH = "intent_search"
 FUNCTION_OUT_OF_SCOPE = "out_of_scope"
 
 # Operation-type tags recorded on each billing row.
@@ -22,6 +23,7 @@ OPERATION_CHAT_SUMMARY = "chat_summary"
 OPERATION_UPGRADE_USER_CHAT = "upgrade_user_chat"
 OPERATION_PROCESS_THREAD = "process_thread"
 OPERATION_GENERAL_QUERY = "general_query"
+OPERATION_INTENT_SEARCH = "intent_search"
 
 
 class ThreadCategory(StrEnum):

@@ -1,6 +1,7 @@
 
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from app.ai import ai_constants
 from app.ai import registry
@@ -35,7 +36,7 @@ class AIConfigBuilder:
             logger.error(f"Error :: {str(e)}")
             return None
 
-    async def prepare_intent_detection_config(self):
+    async def prepare_intent_detection_config(self, request_data: dict):
         try:
             cfg = intent_detection.INTENT_DETECTION_CONSTANTS
 
@@ -45,11 +46,22 @@ class AIConfigBuilder:
                 "parallel_tool_calls": cfg.get("parallel_tool_calls"),
                 "operation_type": ai_constants.OPERATION_INTENT_DETECTION,
             }
+            tz_str = request_data.get("timezone") or "UTC"
+            try:
+                user_tz = ZoneInfo(tz_str)
+            except Exception as tz_err:
+                logger.warning(f"Invalid timezone '{tz_str}', defaulting to UTC: {tz_err}")
+                user_tz = timezone.utc
+                tz_str = "UTC"
 
-            now_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            # Prepend at the TOP so it sets authoritative context for all prompt rules below.
+            now_dt = datetime.now(user_tz)
+            now_datetime = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+            # Prepend current user timezone and datetime context
             intent_detection_info["instructions"] = (
-                f"CURRENT CONTEXT:\n- current_utc_datetime: {now_datetime}\n\n"
+                f"CURRENT CONTEXT:\n"
+                f"- current_user_timezone: {tz_str}\n"
+                f"- current_user_datetime: {now_datetime}\n\n"
                 + intent_detection_info["instructions"]
             )
 

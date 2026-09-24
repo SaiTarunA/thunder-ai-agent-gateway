@@ -1,7 +1,8 @@
 import json
 import logging
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 import re
 from fastapi import status
 from pydantic import TypeAdapter
@@ -32,14 +33,15 @@ class ChatSummaryHandler():
             request_params = request_data.copy()
 
             requested_user_name = request_data.get('user_name')
+            user_timezone = request_data.get('timezone')
             requested_start = None
             requested_end = None
 
             if nlp_response.start_date:
-                requested_start = datetime.strptime(nlp_response.start_date, "%Y-%m-%d %H:%M:%S")
+                requested_start = utils.convert_to_utc(nlp_response.start_date, user_timezone)
 
             if nlp_response.end_date:
-                requested_end = datetime.strptime(nlp_response.end_date, "%Y-%m-%d %H:%M:%S")
+                requested_end = utils.convert_to_utc(nlp_response.end_date, user_timezone)
 
             requested_message_count: int | None = nlp_response.message_count
 
@@ -88,7 +90,9 @@ class ChatSummaryHandler():
                 return {"status": status.HTTP_404_NOT_FOUND, "msg": "Failed", "error": "Please provide a valid timeline or message count."}
 
             if should_generate_fresh_summary:
-                conversations = await self.collect_user_conversations(nlp_response, request_data)
+                conversations = await self.collect_user_conversations(
+                    nlp_response, request_data, start_date=requested_start, end_date=requested_end
+                )
 
                 if not conversations:
                     return {"status": status.HTTP_404_NOT_FOUND, "msg": "Failed", "error": "No conversations found for the selected date range."}
@@ -97,7 +101,7 @@ class ChatSummaryHandler():
                 response_data = await self.generate_chat_summary(request_data)
 
             if response_data.get("message"):
-                if not nlp_response.message_count or not nlp_response.unread_messages:
+                if requested_start and requested_end:
                     if nlp_response.is_resummarization_request:
                         await opensips_db_handler.update_chat_summary_into_db(response_data["message"], requested_start, requested_end, request_data)
                     else:
@@ -156,14 +160,17 @@ class ChatSummaryHandler():
         """Builds a list of segments (existing summaries + newly collected gap chats) sorted chronologically."""
         try:
             segments: list[dict] = []
+            user_timezone = request_data.get("timezone")
 
             for s in existing_summaries:
+                s_start_str = utils.convert_utc_to_timezone(s.start_date, user_timezone)
+                s_end_str = utils.convert_utc_to_timezone(s.end_date, user_timezone)
                 segments.append({
                     "type":       "summary",
                     "text":       s.summary,
                     "start":      s.start_date,
                     "end":        s.end_date,
-                    "date_range": f"{s.start_date.strftime('%Y-%m-%d %H:%M:%S')} to {s.end_date.strftime('%Y-%m-%d %H:%M:%S')}"
+                    "date_range": f"{s_start_str} to {s_end_str}"
                 })
 
             for gap in gaps:
@@ -174,8 +181,13 @@ class ChatSummaryHandler():
                     start_date=gap_start.strftime("%Y-%m-%d %H:%M:%S"),
                     end_date=gap_end.strftime("%Y-%m-%d %H:%M:%S"),
                 )
-                gap_chats = await self.collect_user_conversations(gap_nlp, request_data)
+                gap_chats = await self.collect_user_conversations(
+                    gap_nlp, request_data, start_date=gap_start, end_date=gap_end
+                )
                 conversations = gap_chats.get("conversations") if gap_chats else []
+
+                gap_start_str = utils.convert_utc_to_timezone(gap_start, user_timezone)
+                gap_end_str = utils.convert_utc_to_timezone(gap_end, user_timezone)
 
                 if conversations:
                     segments.append({
@@ -183,7 +195,7 @@ class ChatSummaryHandler():
                         "conversations": conversations,
                         "start":         gap_start,
                         "end":           gap_end,
-                        "date_range":    f"{gap_start.strftime('%Y-%m-%d %H:%M:%S')} to {gap_end.strftime('%Y-%m-%d %H:%M:%S')}",
+                        "date_range":    f"{gap_start_str} to {gap_end_str}",
                     })
                 else:
                     logger.info(f"No chats found for gap {gap['start']} → {gap['end']}, agentid: {request_data.get('agentid')}")
@@ -232,13 +244,23 @@ class ChatSummaryHandler():
             logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
             raise e
 
-    async def collect_user_conversations(self, nlp_response: SummaryNLPExtractedData, request_data):
+    async def collect_user_conversations(
+        self,
+        nlp_response: SummaryNLPExtractedData,
+        request_data,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ):
         try:
+            user_timezone = request_data.get("timezone")
+            utc_start = start_date if start_date is not None else utils.convert_to_utc(nlp_response.start_date, user_timezone)
+            utc_end = end_date if end_date is not None else utils.convert_to_utc(nlp_response.end_date, user_timezone)
+
             user_chats: list[StreamsUserChatData] = TypeAdapter(list[StreamsUserChatData]).validate_python(
                 await streams_db_handler.get_streams_user_chat(
                     request_data,
-                    start_date=nlp_response.start_date,
-                    end_date=nlp_response.end_date,
+                    start_date=utc_start,
+                    end_date=utc_end,
                     message_count=nlp_response.message_count,
                     unread_messages=nlp_response.unread_messages,
                 )
@@ -269,6 +291,14 @@ class ChatSummaryHandler():
                     logger.info(f"No valid conversations remaining after filtering noise, agentid : {request_data.get('agentid')}")
                     return None
 
+                for c in conversations:
+                    time_val = c.get("timestamp") or c.get("messagetime")
+                    if time_val:
+                        user_time = utils.convert_utc_to_timezone(time_val, user_timezone)
+                        c["timestamp"] = user_time
+                        if "messagetime" in c:
+                            c["messagetime"] = user_time
+
                 logger.info(f"length of conversations :: {len(conversations)}, agentid : {request_data.get('agentid')}")
 
                 chat_data = {"conversations": conversations}
@@ -276,6 +306,7 @@ class ChatSummaryHandler():
                 return chat_data
             finally:
                 if target_dir.exists():
+                    logger.info(f"deleting temp directory :: {target_dir}, agentid :: {request_data.get('agentid')}")
                     shutil.rmtree(target_dir, ignore_errors=True)
 
         except Exception as e:

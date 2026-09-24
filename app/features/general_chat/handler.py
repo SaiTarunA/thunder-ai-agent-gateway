@@ -12,7 +12,7 @@ from app.ai.tokenizer import validate_token_limits
 from app.core.utils import utils
 from app.db.mysql.repositories.streams_repo import streams_db_handler
 from app.features.chat_summary.schemas import StreamsUserChatData
-from app.features.intent_detection.schemas import ProcessThreadArgs, ThreadArgs
+from app.features.intent_detection.schemas import ProcessThreadArgs
 from app.workers.attachment_worker import (
     TEMP_ATTACHMENT_DIR,
     process_messages_attachments,
@@ -88,7 +88,7 @@ class GeneralChatHandler():
 
             if category == ThreadCategory.GENERATE_REPLY and utils.is_meta_response(message):
                 logger.warning(
-                    f"Meta-response detected in thread reply: '{message}', agentid :: {request_data.get('agentid')}. Retrying generation with reinforced instruction..."
+                    f"Meta-response detected in thread reply: '{message}' and Retrying generation with reinforced instruction..., agentid :: {request_data.get('agentid')}"
                 )
                 retry_thread_data = thread_data.copy()
                 retry_thread_data["instructions"] = (

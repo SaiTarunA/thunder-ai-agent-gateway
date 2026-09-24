@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Optional
-
+from pydantic import TypeAdapter
 from fastapi import status
 
 from app.ai import ai_constants
@@ -12,6 +12,8 @@ from app.features.chat_summary.handler import chat_summary_handler
 from app.features.general_chat.handler import general_chat_handler
 from app.features.intent_detection.schemas import INTENT_TOOL_SCHEMAS, WEB_SEARCH_TOOL, LunaRequest
 from app.core.utils import utils
+from app.features.search.module import search_module
+from app.features.search.domain.models import SearchContextRequest
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ class IntentDetectionHandler():
 
             intent_detection_data = {
                 **request_data,
-                **await ai_config_builder.prepare_intent_detection_config(),
+                **await ai_config_builder.prepare_intent_detection_config(request_data),
                 "tools": self._build_tool_definitions(),
             }
 
@@ -147,6 +149,19 @@ class IntentDetectionHandler():
                 case ai_constants.FUNCTION_DOCUMENT_INTELLIGENCE:
                     tool_call_response = args.model_dump()
                     tool_call_response["type"] = "document_intellegence"
+
+                case ai_constants.FUNCTION_INTENT_SEARCH:
+                    intent_search_request = args.model_dump()
+                    user_tz = request_data.get("timezone") or request_data.get("time_zone") or "UTC"
+                    for key in ("after", "before"):
+                        val = intent_search_request.get(key)
+                        if val is not None:
+                            intent_search_request[key] = utils.convert_to_timestamp(val, source_tz=user_tz)
+                    logger.info(
+                        f"Converted intent_search date filters to timestamps :: after={intent_search_request.get('after')}, before={intent_search_request.get('before')}, timezone={user_tz}"
+                    )
+                    tool_call_response = await search_module.search(TypeAdapter(SearchContextRequest).validate_python({**intent_search_request, **request_data}))
+                    tool_call_response["type"] = "search"
 
                 case ai_constants.FUNCTION_OUT_OF_SCOPE:
                     tool_call_response = args.model_dump()

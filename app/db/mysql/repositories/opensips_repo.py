@@ -4,6 +4,7 @@ import logging
 import app.db.mysql.queries.opensips_sql as queries
 from app.db.mysql.connection.db_connector import db_connector
 from app.core.configs import mysql_config as db_config
+from app.core.utils import utils
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +58,19 @@ class OpenSIPsDBHandler:
                 "============= fetching chat summary ======== "
                 f"sid :: {request_data.get('sid')}"
             )
+            if not start_date or not end_date:
+                raise Exception(
+                    "Missing 'start_date' or 'end_date' for duration chat lookup"
+                )
+            user_timezone = request_data.get("timezone")
+            utc_start = utils.convert_to_utc(start_date, user_timezone)
+            utc_end = utils.convert_to_utc(end_date, user_timezone)
+
             query = queries.DB_SELECT_CHAT_SUMMARY
             params = {
                 "sid": request_data.get("sid"),
-                "start_date": start_date,
-                "end_date": end_date,
+                "start_date": utc_start,
+                "end_date": utc_end,
             }
             data = await db_connector.execute(
                 db_config.DB_OPENSIPS, query, params
@@ -86,11 +95,19 @@ class OpenSIPsDBHandler:
                 "============= inserting chat summary ======== "
                 f"agentid :: {request_data.get('agentid')}"
             )
+            if not start_date or not end_date:
+                raise Exception(
+                    "Missing 'start_date' or 'end_date' for duration chat lookup"
+                )
+            user_timezone = request_data.get("timezone")
+            utc_start = utils.convert_to_utc(start_date, user_timezone)
+            utc_end = utils.convert_to_utc(end_date, user_timezone)
+
             query = queries.DB_INSERT_CHAT_SUMMARY
             params = {
                 "sid": request_data.get("sid"),
-                "start_date": start_date,
-                "end_date": end_date,
+                "start_date": utc_start,
+                "end_date": utc_end,
                 "summary": summary,
                 "extra_data": json.dumps({"agentid": request_data.get("agentid")}),
             }
@@ -114,12 +131,20 @@ class OpenSIPsDBHandler:
                 "============= updating chat summary ======== "
                 f"agentid :: {request_data.get('agentid')}"
             )
+            if not start_date or not end_date:
+                raise Exception(
+                    "Missing 'start_date' or 'end_date' for duration chat lookup"
+                )
+            user_timezone = request_data.get("timezone")
+            utc_start = utils.convert_to_utc(start_date, user_timezone)
+            utc_end = utils.convert_to_utc(end_date, user_timezone)
+
             query = queries.DB_UPDATE_CHAT_SUMMARY
             params = {
                 "summary": summary,
                 "sid": request_data.get("sid"),
-                "start_date": start_date,
-                "end_date": end_date,
+                "start_date": utc_start,
+                "end_date": utc_end,
             }
             data = await db_connector.execute_statement(
                 db_config.DB_OPENSIPS, query, params

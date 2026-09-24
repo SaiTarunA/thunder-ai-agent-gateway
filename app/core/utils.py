@@ -1,6 +1,8 @@
 import json
 import re
+from datetime import datetime, date, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 import logging
 
 logger = logging.getLogger(__name__)
@@ -148,5 +150,159 @@ class Utils:
                 return True
 
         return False
+
+    def convert_to_utc(
+        self,
+        dt_value: Any,
+        source_tz: Optional[str] = "UTC",
+    ) -> Optional[datetime]:
+        """Convert a datetime string or datetime object to a UTC-aware datetime.
+
+        Args:
+            dt_value: A datetime object, date string (e.g. 'YYYY-MM-DD HH:MM:SS' or ISO format), or None.
+            source_tz: The timezone of the source datetime. Defaults to 'UTC' if None or empty.
+
+        Returns:
+            A timezone-aware datetime in UTC, or None if dt_value is None or empty.
+        """
+        if dt_value is None:
+            return None
+
+        if isinstance(dt_value, str):
+            dt_str = dt_value.strip()
+            if not dt_str:
+                return None
+            try:
+                parsed_dt = datetime.fromisoformat(dt_str)
+            except ValueError:
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                    try:
+                        parsed_dt = datetime.strptime(dt_str, fmt)
+                        break
+                    except ValueError:
+                        pass
+                else:
+                    logger.error(f"Failed to parse datetime string: {dt_str}")
+                    return None
+        elif isinstance(dt_value, datetime):
+            parsed_dt = dt_value
+        elif isinstance(dt_value, date):
+            parsed_dt = datetime.combine(dt_value, datetime.min.time())
+        else:
+            logger.error(f"Unsupported datetime type: {type(dt_value)}")
+            return None
+
+        if parsed_dt.tzinfo is not None:
+            return parsed_dt.astimezone(timezone.utc)
+
+        tz_name = (source_tz or "UTC").strip() if isinstance(source_tz, str) else "UTC"
+        if not tz_name:
+            tz_name = "UTC"
+
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception as e:
+            logger.warning(f"Invalid or unsupported timezone '{tz_name}', defaulting to UTC: {e}")
+            tz = timezone.utc
+
+        return parsed_dt.replace(tzinfo=tz).astimezone(timezone.utc)
+
+    def convert_utc_to_timezone(
+        self,
+        dt_value: Any,
+        target_tz: Optional[str] = "UTC",
+        output_format: Optional[str] = "%Y-%m-%d %H:%M:%S",
+    ) -> Any:
+        """Convert a UTC datetime string or datetime object to the target timezone.
+
+        Args:
+            dt_value: A datetime object or UTC date string (e.g. 'YYYY-MM-DD HH:MM:SS').
+            target_tz: Target timezone name (e.g. 'Asia/Kolkata'). Defaults to 'UTC' if None or empty.
+            output_format: Optional strftime format. If None, returns the aware datetime object.
+
+        Returns:
+            Formatted datetime string (or datetime object if output_format is None),
+            or dt_value unchanged if conversion fails or dt_value is None.
+        """
+        if dt_value is None:
+            return None
+
+        parsed_dt = None
+        if isinstance(dt_value, str):
+            dt_str = dt_value.strip()
+            if not dt_str:
+                return None
+            try:
+                parsed_dt = datetime.fromisoformat(dt_str)
+            except ValueError:
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                    try:
+                        parsed_dt = datetime.strptime(dt_str, fmt)
+                        break
+                    except ValueError:
+                        pass
+                else:
+                    logger.error(f"Failed to parse datetime string: {dt_str}")
+                    return dt_value
+        elif isinstance(dt_value, datetime):
+            parsed_dt = dt_value
+        elif isinstance(dt_value, date):
+            parsed_dt = datetime.combine(dt_value, datetime.min.time())
+        else:
+            return dt_value
+
+        # Ensure parsed_dt is UTC-aware
+        if parsed_dt.tzinfo is None:
+            utc_dt = parsed_dt.replace(tzinfo=timezone.utc)
+        else:
+            utc_dt = parsed_dt.astimezone(timezone.utc)
+
+        # Resolve target timezone
+        tz_name = (target_tz or "UTC").strip() if isinstance(target_tz, str) else "UTC"
+        if not tz_name:
+            tz_name = "UTC"
+
+        try:
+            target_zone = ZoneInfo(tz_name)
+        except Exception as e:
+            logger.warning(f"Invalid target timezone '{tz_name}', defaulting to UTC: {e}")
+            target_zone = timezone.utc
+
+        converted_dt = utc_dt.astimezone(target_zone)
+
+        if output_format:
+            return converted_dt.strftime(output_format)
+        return converted_dt
+
+    def convert_to_timestamp(
+        self,
+        dt_value: Any,
+        source_tz: Optional[str] = "UTC",
+    ) -> Optional[float]:
+        """Convert a datetime string, datetime object, or numeric value into a Unix epoch timestamp float.
+
+        If dt_value is a date string, it is interpreted in source_tz and converted to UTC epoch seconds.
+        """
+        if dt_value is None:
+            return None
+        if isinstance(dt_value, (int, float)):
+            return float(dt_value)
+        if isinstance(dt_value, str):
+            trimmed = dt_value.strip()
+            if not trimmed or trimmed.lower() in ("none", "null"):
+                return None
+            try:
+                return float(trimmed)
+            except ValueError:
+                pass
+            utc_dt = self.convert_to_utc(trimmed, source_tz=source_tz)
+            if utc_dt:
+                return float(utc_dt.timestamp())
+        elif isinstance(dt_value, (datetime, date)):
+            utc_dt = self.convert_to_utc(dt_value, source_tz=source_tz)
+            if utc_dt:
+                return float(utc_dt.timestamp())
+        return None
+
 
 utils = Utils()

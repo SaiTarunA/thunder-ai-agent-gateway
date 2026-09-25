@@ -1,12 +1,12 @@
 
 import logging
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 from app.ai import ai_constants
 from app.ai import registry
 from app.ai.ai_constants import ThreadCategory
 from app.ai.prompts import chat_summary, intent_detection, reply_to_thread, upgrade_user_chat
+from app.core.utils import utils
 from app.features.intent_detection.schemas import WEB_SEARCH_TOOL
 
 logger = logging.getLogger(__name__)
@@ -47,12 +47,7 @@ class AIConfigBuilder:
                 "operation_type": ai_constants.OPERATION_INTENT_DETECTION,
             }
             tz_str = request_data.get("timezone") or "UTC"
-            try:
-                user_tz = ZoneInfo(tz_str)
-            except Exception as tz_err:
-                logger.warning(f"Invalid timezone '{tz_str}', defaulting to UTC: {tz_err}")
-                user_tz = timezone.utc
-                tz_str = "UTC"
+            user_tz = utils.get_zoneinfo(tz_str)
 
             now_dt = datetime.now(user_tz)
             now_datetime = now_dt.strftime("%Y-%m-%d %H:%M:%S")

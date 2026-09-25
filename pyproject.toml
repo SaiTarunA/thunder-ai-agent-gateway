@@ -29,6 +29,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "sqlalchemy>=2.0.52",
     "tiktoken>=0.14.0",
+    "tzdata>=2026.3",
 ]
 
 [tool.pytest.ini_options]

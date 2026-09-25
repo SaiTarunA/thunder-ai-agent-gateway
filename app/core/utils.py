@@ -1,11 +1,22 @@
 import json
 import re
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, tzinfo
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 import logging
 
 logger = logging.getLogger(__name__)
+
+TIMEZONE_ALIASES: dict[str, str] = {
+    "Asia/Calcutta": "Asia/Kolkata",
+    "Asia/Katmandu": "Asia/Kathmandu",
+    "Asia/Saigon": "Asia/Ho_Chi_Minh",
+    "Asia/Rangoon": "Asia/Yangon",
+    "US/Eastern": "America/New_York",
+    "US/Central": "America/Chicago",
+    "US/Mountain": "America/Denver",
+    "US/Pacific": "America/Los_Angeles",
+}
 
 
 META_RESPONSE_PATTERNS = [
@@ -151,6 +162,22 @@ class Utils:
 
         return False
 
+    def get_zoneinfo(self, tz_name: Optional[str]) -> tzinfo:
+        """Resolve a timezone name to a ZoneInfo (or timezone.utc) with legacy alias normalization."""
+        cleaned = (tz_name or "UTC").strip() if isinstance(tz_name, str) else "UTC"
+        if not cleaned:
+            cleaned = "UTC"
+
+        normalized = TIMEZONE_ALIASES.get(cleaned, cleaned)
+        try:
+            return ZoneInfo(normalized)
+        except Exception:
+            try:
+                return ZoneInfo(cleaned)
+            except Exception as e:
+                logger.warning(f"Invalid target timezone '{tz_name}', defaulting to UTC: {e}")
+                return timezone.utc
+
     def convert_to_utc(
         self,
         dt_value: Any,
@@ -195,16 +222,7 @@ class Utils:
         if parsed_dt.tzinfo is not None:
             return parsed_dt.astimezone(timezone.utc)
 
-        tz_name = (source_tz or "UTC").strip() if isinstance(source_tz, str) else "UTC"
-        if not tz_name:
-            tz_name = "UTC"
-
-        try:
-            tz = ZoneInfo(tz_name)
-        except Exception as e:
-            logger.warning(f"Invalid or unsupported timezone '{tz_name}', defaulting to UTC: {e}")
-            tz = timezone.utc
-
+        tz = self.get_zoneinfo(source_tz)
         return parsed_dt.replace(tzinfo=tz).astimezone(timezone.utc)
 
     def convert_utc_to_timezone(
@@ -257,17 +275,7 @@ class Utils:
         else:
             utc_dt = parsed_dt.astimezone(timezone.utc)
 
-        # Resolve target timezone
-        tz_name = (target_tz or "UTC").strip() if isinstance(target_tz, str) else "UTC"
-        if not tz_name:
-            tz_name = "UTC"
-
-        try:
-            target_zone = ZoneInfo(tz_name)
-        except Exception as e:
-            logger.warning(f"Invalid target timezone '{tz_name}', defaulting to UTC: {e}")
-            target_zone = timezone.utc
-
+        target_zone = self.get_zoneinfo(target_tz)
         converted_dt = utc_dt.astimezone(target_zone)
 
         if output_format:

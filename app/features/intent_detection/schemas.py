@@ -15,7 +15,7 @@ arguments were parsed into a Pydantic model before use; the other six functions 
 their raw, unvalidated arguments dict passed straight through.
 """
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from enum import StrEnum
 from pydantic import BaseModel, Field
 
@@ -39,6 +39,8 @@ class LunaRequest(BaseModel):
     timezone: Optional[str] = Field(None, description="The timezone of the user")
     previous_response_id: Optional[str] = Field(None, description="The previous response ID")
     conversation_id: Optional[str] = Field(None, description="The conversation ID")
+    reqtype: Optional[str] = Field(None, description="Direct function/intent name to bypass intent detection")
+    params: Optional[dict[str, Any]] = Field(default_factory=dict, description="Parameters for direct function execution")
 
 
 class UpgradeUserChatArgs(BaseModel):

@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from app.db.mysql.connection.db_connector import db_connector
 import app.db.mysql.queries.streams_sql as queries
@@ -110,7 +111,7 @@ class StreamsDBHandler:
             logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
             return {}
 
-    async def get_streams_thread_messages(self, request_data):
+    async def get_streams_thread_messages(self, request_data, message_count: Optional[int] = None):
         try:
             smsgid = request_data.get("smsgid")
             if not smsgid:
@@ -120,13 +121,59 @@ class StreamsDBHandler:
                 return []
 
             params = {"param_smsgid": smsgid}
+            if message_count is not None and int(message_count) > 0:
+                params["param_message_count"] = int(message_count)
+                query = queries.DB_GET_STREAMS_THREAD_MESSAGES_BY_MESSAGE_COUNT
+            else:
+                query = queries.DB_GET_STREAMS_THREAD_MESSAGES
+
             data = await db_connector.execute(
                 db_config.DB_STREAMS,
-                queries.DB_GET_STREAMS_THREAD_MESSAGES,
+                query,
                 params,
             )
             logger.info(
                 f"streams thread messages data count :: {len(data) if data else 0}, "
+                f"agentid :: {request_data.get('agentid')}"
+            )
+            return data if data else []
+        except Exception as e:
+            logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
+            return []
+
+
+    async def get_streams_thread_messages_by_duration(self, request_data, start_date, end_date):
+        """Fetches thread replies occurring within the specified date range."""
+        try:
+            smsgid = request_data.get("smsgid")
+            if not smsgid:
+                logger.error(
+                    f"Missing 'smsgid' in request_data, agentid :: {request_data.get('agentid')}"
+                )
+                return []
+
+            if not start_date or not end_date:
+                logger.error(
+                    f"Missing 'start_date' or 'end_date' for thread duration lookup, agentid :: {request_data.get('agentid')}"
+                )
+                return []
+
+            user_timezone = request_data.get("timezone")
+            utc_start = utils.convert_to_utc(start_date, user_timezone)
+            utc_end = utils.convert_to_utc(end_date, user_timezone)
+
+            params = {
+                "param_smsgid": smsgid,
+                "param_start_date": utc_start,
+                "param_end_date": utc_end,
+            }
+            data = await db_connector.execute(
+                db_config.DB_STREAMS,
+                queries.DB_GET_STREAMS_THREAD_MESSAGES_BY_DURATION,
+                params,
+            )
+            logger.info(
+                f"streams thread messages by duration count :: {len(data) if data else 0}, "
                 f"agentid :: {request_data.get('agentid')}"
             )
             return data if data else []

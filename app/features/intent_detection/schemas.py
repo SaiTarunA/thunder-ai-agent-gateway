@@ -57,6 +57,25 @@ class ProcessThreadArgs(BaseModel):
             "'summarize' to summarize a thread (a parent message with its replies or comments)."
         ),
     )
+    start_date: Optional[str] = Field(
+        None, description="Calculated summary start timestamp in 'YYYY-MM-DD HH:MM:SS' format, or null."
+    )
+    end_date: Optional[str] = Field(
+        None, description="Calculated summary end timestamp in 'YYYY-MM-DD HH:MM:SS' format, or null."
+    )
+    message_count: Optional[int] = Field(
+        None, ge=1, description="Requested number of messages, such as 10 for 'last 10 messages'; otherwise null."
+    )
+    summary_type: Optional[
+        Literal["brief", "short", "long", "detailed", "keypoints", "user_specific", "topic_specific"]
+    ] = Field(
+        None, description="Requested summary-detail level."
+    )
+    tone: Optional[str] = Field(None, description="Requested summary tone, or null.")
+    buddy_name: Optional[str] = Field(None, description="Named buddy, or null.")
+    group_name: Optional[str] = Field(None, description="Named group, or null.")
+    topic_name: Optional[str] = Field(None, description="Named topic or subject focus, or null.")
+
  
  
 class GeneralQueryArgs(BaseModel):

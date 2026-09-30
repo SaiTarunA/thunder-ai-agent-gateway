@@ -167,7 +167,107 @@ Use valid Markdown to make the result clear, structured, and visually appealing 
 - Produce one unified summary, not separate summaries for individual segments.
 - Keep the output accurate, natural, concise, and easy to scan.
 - Return only the final merged summary.
-- Do not add a preamble, explanation, processing notes, or labels such as “Summary” or “Merged Summary” unless the requested format requires a heading.""",
+- Do not add a preamble, explanation, processing notes, or labels such as “Summary” or “Merged Summary” unless the requested format requires a heading.
+
+## Period Layout and Unavailable Periods
+- If the input contains `period_layout`, follow it. It is the one exception to keeping segments merged: the summary may have one section per period, but each section must still be a cohesive summary of that period, not a copy of the segment text.
+- If the input contains `unavailable_periods`, state briefly, in the same language as the summary, that those periods could not be summarized. Never guess what happened in them.""",
+    # Working-notes prompts for the batched path. They are used only when a chat history is too
+    # large for a single model call: each time window is condensed into neutral notes
+    # (`batch_notes_instructions`), and notes are merged into fewer notes when there are too many
+    # to fit in the final call (`collapse_notes_instructions`). The user-facing style, tone and
+    # format are applied only by `secondary_instructions` in the final call.
+    "batch_notes_instructions": """
+You are an AI assistant that condenses one time window of a longer chat history into neutral, factual working notes. These notes will later be merged with the notes of other time windows into the final summary, so completeness and accuracy matter more than style.
+
+The input contains:
+1. `period` — the date range covered by this window.
+2. `conversations` — chronologically ordered messages:
+
+{
+  "timestamp": "YYYY-MM-DD HH:MM:SS",
+  "user": "username",
+  "message": "text content"
+}
+
+3. Optional `context`, `topic_name`, `buddy_name` — the focus requested for the final summary.
+
+## What to capture
+- The main topics and what was concluded for each.
+- Decisions and who made them; action items with owner and deadline; open questions and unresolved issues; problems reported and whether they were resolved.
+- Commitments, dates, numbers, identifiers, and technical terms exactly as written.
+- Every participant who contributed something meaningful, using names as they appear.
+- The progression of events: when something started, changed, or was resolved, note the date so the timeline is preserved.
+- Anything that looks unfinished or likely to continue after this window, under a final line beginning `Carries over:`.
+- If `context`, `topic_name`, or `buddy_name` is present, keep every detail relevant to it and shorten unrelated content.
+
+## What to leave out
+Greetings, filler, acknowledgements, duplicate statements, repeated numbers, random strings, test entries, and meaningless content. When a window is mostly tests or development checks, say so in one line instead of listing them.
+
+## Output rules
+- Write compact Markdown bullet notes grouped under short topic labels. Write dates as YYYY-MM-DD and add a time only when it matters.
+- Keep the same language as the conversation.
+- Do not invent facts, decisions, or outcomes that are not in the messages.
+- Return only the notes, with no preamble. Keep them far shorter than the input and never longer than about 1500 words.
+- If there is no meaningful discussion, return exactly: No meaningful discussion in this period.""",
+    "collapse_notes_instructions": """
+You are an AI assistant that merges consecutive working notes about one chat history into a single, shorter set of working notes. The result will be merged again into the final summary, so keep it neutral and factual.
+
+The input contains `segments`, a chronologically ordered list of:
+
+{
+  "type": "summary",
+  "text": "...",
+  "date_range": "YYYY-MM-DD to YYYY-MM-DD"
+}
+
+and optional `context`, `topic_name`, `buddy_name` describing the focus requested for the final summary.
+
+## Rules
+- Keep every decision, action item with owner and deadline, unresolved issue, commitment, date, number, identifier, technical term, and participant name.
+- Keep the timeline: put the date next to each event, and when something changed or was resolved later, show the progression.
+- Merge repeated or closely related points, and keep the latest status.
+- If a segment says its period could not be summarized, keep that period's date range and say so in one line.
+- If `context`, `topic_name`, or `buddy_name` is present, keep every detail relevant to it and shorten unrelated content.
+- Do not invent facts, and do not apply any style, tone, or format other than the layout below.
+
+## Output rules
+- Compact Markdown bullet notes grouped under short topic labels, in chronological order, dates as YYYY-MM-DD.
+- Keep the same language as the input.
+- Return only the notes, with no preamble. Never longer than about 2000 words.""",
+    # Added to the final merge payload as `period_layout` only when a long history was batched and
+    # the requested summary type is not brief or short.
+    "period_layout_instruction": (
+        "The segments are consecutive periods of one long chat history. Organize the summary "
+        "chronologically by period. Give each period its own short heading or bold label taken from "
+        "the segment's `date_range`, or a natural label such as the month name when a segment covers "
+        "one whole calendar month, and describe what happened in that period. Combine neighbouring "
+        "periods only when nothing distinct happened in them. Include every period. Keep decisions, "
+        "action items, and unresolved issues in the period where they occurred, and mention when a "
+        "later period resolved or changed something from an earlier one. If there is a meaningful "
+        "overall outcome, finish with one short closing line."
+    ),
+    "unavailable_periods_instruction": (
+        "These periods could not be summarized because of a processing error. Say so briefly for "
+        "each one and do not guess what happened in them."
+    ),
+    "unavailable_period_text": "[This period could not be summarized because of a processing error.]",
+    # Batched summarization settings. Used only when a chat history does not fit in one call.
+    "batching": {
+        # A history up to this many input tokens is still summarized in a single call. The limit
+        # also never exceeds what the model can take (see AIConfigBuilder / handler token limits).
+        "single_pass_max_input_tokens": 150_000,
+        # Upper bound for one batch. Smaller than the model window on purpose: quality drops and
+        # latency grows as the prompt approaches the window, and smaller batches run in parallel.
+        "batch_target_input_tokens": 100_000,
+        # Share of the model input window kept free for the tokenizer difference and prompt overhead.
+        "context_safety_margin": 0.10,
+        "max_parallel_batches": 4,
+        "batch_max_output_tokens": 4000,
+        "batch_temperature": 0.3,
+        "batch_attempts": 2,
+        "max_collapse_rounds": 4,
+    },
     "max_response_output_tokens": 5000,
     "temperature": 0.7,
 }

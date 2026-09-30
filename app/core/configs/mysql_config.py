@@ -10,6 +10,8 @@ DB_CONTACTS = 'CONTACTS'
 DB_OPENSIPS = 'OPENSIPS'
 DB_WSAUTH = 'WSAUTH'
 
+DB_LOCAL = 'LOCAL'
+
 # ---------------------
 
 
@@ -73,4 +75,13 @@ DB_CONFIGS = {
         "connectionLimit": 10,
         "connectTimeout": 30,  # Connection timeout in ms
     },
+    "LOCAL": {
+        "master": ["localhost", "localhost"],
+        "slave": ["localhost", "localhost"],
+        "user": "root",
+        "password": "padnet",
+        "database": "sys",
+        "connectionLimit": 10,
+        "connectTimeout": 30,  # Connection timeout in ms
+    }
 }

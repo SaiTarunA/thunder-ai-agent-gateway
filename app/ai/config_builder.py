@@ -72,8 +72,14 @@ class AIConfigBuilder:
             cfg = chat_summary.CHAT_SUMMARY_CONSTANTS
 
             chat_summary_info = {
-                **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4O_MINI),
+                **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4_1_MINI),
                 "secondary_instructions": cfg.get("secondary_instructions"),
+                "batch_notes_instructions": cfg.get("batch_notes_instructions"),
+                "collapse_notes_instructions": cfg.get("collapse_notes_instructions"),
+                "period_layout_instruction": cfg.get("period_layout_instruction"),
+                "unavailable_periods_instruction": cfg.get("unavailable_periods_instruction"),
+                "unavailable_period_text": cfg.get("unavailable_period_text"),
+                "batching": cfg.get("batching"),
                 "operation_type": ai_constants.OPERATION_CHAT_SUMMARY,
             }
 
@@ -105,19 +111,32 @@ class AIConfigBuilder:
             tools = []
             if category == ThreadCategory.SUMMARIZE:
                 cfg = chat_summary.CHAT_SUMMARY_CONSTANTS
+                process_thread_info = {
+                    **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4_1_MINI),
+                    "secondary_instructions": cfg.get("secondary_instructions"),
+                    "batch_notes_instructions": cfg.get("batch_notes_instructions"),
+                    "collapse_notes_instructions": cfg.get("collapse_notes_instructions"),
+                    "period_layout_instruction": cfg.get("period_layout_instruction"),
+                    "unavailable_periods_instruction": cfg.get("unavailable_periods_instruction"),
+                    "unavailable_period_text": cfg.get("unavailable_period_text"),
+                    "batching": cfg.get("batching"),
+                    "tools": tools,
+                    "tool_choice": cfg.get("tool_choice"),
+                    "parallel_tool_calls": cfg.get("parallel_tool_calls", False),
+                    "operation_type": ai_constants.OPERATION_PROCESS_THREAD,
+                }
             elif category == ThreadCategory.GENERATE_REPLY:
                 cfg = reply_to_thread.REPLY_TO_THREAD_CONSTANTS
                 tools = cfg.get("tools", [WEB_SEARCH_TOOL])
+                process_thread_info = {
+                    **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4_1_MINI),
+                    "tools": tools,
+                    "tool_choice": cfg.get("tool_choice"),
+                    "parallel_tool_calls": cfg.get("parallel_tool_calls", False),
+                    "operation_type": ai_constants.OPERATION_PROCESS_THREAD,
+                }
             else:
                 raise ValueError(f"Invalid category :: {category}")
-
-            process_thread_info = {
-                **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4_1_MINI),
-                "tools": tools,
-                "tool_choice": cfg.get("tool_choice"),
-                "parallel_tool_calls": cfg.get("parallel_tool_calls", False),
-                "operation_type": ai_constants.OPERATION_PROCESS_THREAD,
-            }
 
             now_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             process_thread_info["instructions"] = (

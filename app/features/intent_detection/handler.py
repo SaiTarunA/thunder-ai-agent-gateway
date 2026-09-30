@@ -8,7 +8,8 @@ from app.ai.config_builder import ai_config_builder
 from app.ai.router import model_router
 from app.ai.tokenizer import validate_token_limits
 from app.ai.tools import parse_tool_call_arguments, pydantic_model_to_openai_tool
-from app.features.chat_summary.handler import chat_summary_handler
+from app.features.chat_summary.chat_summary_handler import chat_summary_handler
+from app.features.chat_summary.thread_process_handler import thread_process_handler
 from app.features.general_chat.handler import general_chat_handler
 from app.features.intent_detection.schemas import INTENT_TOOL_SCHEMAS, WEB_SEARCH_TOOL, LunaRequest
 from app.core.utils import utils
@@ -141,7 +142,7 @@ class IntentDetectionHandler():
                     tool_call_response["type"] = "chat_formatter"
 
                 case ai_constants.FUNCTION_PROCESS_THREAD:
-                    tool_call_response = await general_chat_handler.process_thread_request(args, request_data)
+                    tool_call_response = await thread_process_handler.process_thread_request(args, request_data)
                     tool_call_response["type"] = "generative_reply"
 
                 case ai_constants.FUNCTION_GENERATE_SUMMARY:

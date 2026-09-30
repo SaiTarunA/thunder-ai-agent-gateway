@@ -22,7 +22,7 @@ from app.ai.registry import DEFAULT_OPENAI_MIN_OUTPUT_TOKENS
 logger = logging.getLogger(__name__)
 
 
-def _count_tokens_for(content, model_info: dict) -> int:
+def count_tokens_for(content, model_info: dict) -> int:
     provider = model_info.get("model_provider") or "OpenAI"
     if provider == "OpenAI":
         return _openai_count_tokens(json.dumps(content, indent=4), model_info.get("model_name"))
@@ -32,7 +32,7 @@ def _count_tokens_for(content, model_info: dict) -> int:
 async def validate_token_limits(content, request_data: dict) -> None:
     try:
         model_info = request_data["model_info"]
-        no_of_tokens = _count_tokens_for(content, model_info)
+        no_of_tokens = count_tokens_for(content, model_info)
         logger.info(f"Token Count :: {no_of_tokens}, agentid :: {request_data.get('agentid')}")
 
         if no_of_tokens < DEFAULT_OPENAI_MIN_OUTPUT_TOKENS or no_of_tokens > model_info.get("max_input_tokens"):

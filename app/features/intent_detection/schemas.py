@@ -64,7 +64,7 @@ class ProcessThreadArgs(BaseModel):
         None, description="Calculated summary end timestamp in 'YYYY-MM-DD HH:MM:SS' format, or null."
     )
     message_count: Optional[int] = Field(
-        None, ge=1, description="Requested number of messages, such as 10 for 'last 10 messages'; otherwise null."
+        None, ge=1, le=10000, description="Requested number of messages (maximum 10,000), such as 10 for 'last 10 messages'; otherwise null."
     )
     summary_type: Optional[
         Literal["brief", "short", "long", "detailed", "keypoints", "user_specific", "topic_specific"]
@@ -213,7 +213,9 @@ INTENT_TOOL_SCHEMAS: dict[str, tuple[type[BaseModel], str]] = {
         "Improve the user's own message draft (from user_text or the composer): polish, fix grammar, rephrase, change "
         "tone, shorten, expand, or format it for sending. Use for (a) an explicit edit instruction with a draft, or "
         "(b) bare text with no instruction that reads as a message to another person rather than a question or "
-        "request to the assistant. Never for questions, even with typos or broken grammar. Call with empty arguments.",
+        "request to the assistant. Never for questions, even with typos or broken grammar. Do NOT use if the user asks "
+        "the assistant to send, post, forward, or deliver the message to someone (e.g. 'send a message to the manager that...'); "
+        f"use {ai_constants.FUNCTION_OUT_OF_SCOPE} instead. Call with empty arguments.",
     ),
     ai_constants.FUNCTION_PROCESS_THREAD: (
         ProcessThreadArgs,
@@ -255,10 +257,11 @@ INTENT_TOOL_SCHEMAS: dict[str, tuple[type[BaseModel], str]] = {
     ),
     ai_constants.FUNCTION_OUT_OF_SCOPE: (
         OutOfScopeArgs,
-        "The user wants something no function can do: send, schedule, forward, delete, edit, pin, or react to real "
-        "messages; control calls; change settings; mutate files; summarize a call with no transcript; search outside "
-        "the accessible context; or a policy-restricted action. Also used when a supported request is bundled with an "
-        "unsupported action. 'message' says it can't be done here and offers the closest supported alternative. Not "
-        "for how-to questions about the app.",
+        "The user wants something no function can do: send, post, schedule, forward, delete, edit, pin, or react to real "
+        "messages (notify the user that you cannot send messages directly, but provide the generated/transformed "
+        "message so they can send it to the intended recipient); control calls; change settings; mutate files; summarize "
+        "a call with no transcript; search outside the accessible context; or a policy-restricted action. Also used "
+        "when a supported request is bundled with an unsupported action. 'message' says it can't be done here and offers "
+        "the closest supported alternative. Not for how-to questions about the app.",
     ),
 }

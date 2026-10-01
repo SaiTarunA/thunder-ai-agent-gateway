@@ -52,12 +52,21 @@ class AIConfigBuilder:
             now_dt = datetime.now(user_tz)
             now_datetime = now_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-            # Prepend current user timezone and datetime context
+            thread_context = ""
+            if request_data.get("smsgid"):
+                thread_context = (
+                    f"- selected_thread_available: true\n"
+                    f"- Note: The user requested from a thread level (smsgid: {request_data.get('smsgid')}). "
+                    f"For any request summarizing or replying to this thread/messages, route to thread-level functions ({ai_constants.FUNCTION_PROCESS_THREAD}) instead of chat-level functions.\n"
+                )
+
+            # Prepend current user timezone, datetime, and thread context
             intent_detection_info["instructions"] = (
                 f"CURRENT CONTEXT:\n"
                 f"- current_user_timezone: {tz_str}\n"
-                f"- current_user_datetime: {now_datetime}\n\n"
-                + intent_detection_info["instructions"]
+                f"- current_user_datetime: {now_datetime}\n"
+                f"{thread_context}\n"
+                f"{intent_detection_info['instructions']}"
             )
 
             logger.info(f"intent_detection_info :: \n{intent_detection_info}")

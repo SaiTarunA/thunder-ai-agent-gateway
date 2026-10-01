@@ -55,7 +55,7 @@ class SummaryNLPExtractedData(BaseModel):
         None, description="Calculated summary end timestamp in 'YYYY-MM-DD HH:MM:SS' format, or null."
     )
     message_count: Optional[int] = Field(
-        None, ge=1, description="Requested number of messages, such as 10 for 'last 10 messages'; otherwise null."
+        None, ge=1, le=10000, description="Requested number of messages (maximum 10,000), such as 10 for 'last 10 messages'; otherwise null."
     )
     unread_messages: bool = Field(False, description="True when summarizing unread messages.")
     is_resummarization_request: bool = Field(

@@ -105,6 +105,27 @@ class IntentDetectionHandler():
                 function_response_data["request_params"] = request_data
                 return function_response_data
 
+            # Cross-check 2: Misrouted upgrade_user_chat for send-message requests
+            if tool_name == ai_constants.FUNCTION_UPGRADE_USER_CHAT and utils.is_send_action_request(data.user_query):
+                logger.warning(
+                    f"Misrouted intent intercepted: model called '{tool_name}' for send-message request: '{data.user_query}'. Upgrading and adding delivery notification, agentid :: {data.agentid}"
+                )
+                upgraded_res = await general_chat_handler.process_upgrade_user_chat_request(request_data)
+                upgraded_msg = upgraded_res.get("message", "").strip()
+                recipient = utils.extract_send_recipient(data.user_query)
+                target_phrase = f"to {recipient}" if recipient else "to the person/people who need to receive it"
+                notification_msg = (
+                    f"I don't have the ability to send messages directly, but I have generated/transformed "
+                    f"your message so that you can send it {target_phrase}:\n\n{upgraded_msg}"
+                )
+                return {
+                    "status": status.HTTP_200_OK,
+                    "msg": "Success",
+                    "message": notification_msg,
+                    "type": "out_of_scope",
+                    "request_params": request_data,
+                }
+
             model_cls, _ = schema_entry
             # Every branch is validated against its Pydantic model here — previously
             # only generate_summary's arguments were parsed into one before use.
@@ -140,6 +161,15 @@ class IntentDetectionHandler():
                 case ai_constants.FUNCTION_UPGRADE_USER_CHAT:
                     tool_call_response = await general_chat_handler.process_upgrade_user_chat_request(request_data)
                     tool_call_response["type"] = "chat_formatter"
+                    if utils.is_send_action_request(request_data.get("user_query")):
+                        upgraded_msg = tool_call_response.get("message", "").strip()
+                        recipient = utils.extract_send_recipient(request_data.get("user_query"))
+                        target_phrase = f"to {recipient}" if recipient else "to the person/people who need to receive it"
+                        tool_call_response["message"] = (
+                            f"I don't have the ability to send messages directly, but I have generated/transformed "
+                            f"your message so that you can send it {target_phrase}:\n\n{upgraded_msg}"
+                        )
+                        tool_call_response["type"] = "out_of_scope"
 
                 case ai_constants.FUNCTION_PROCESS_THREAD:
                     tool_call_response = await thread_process_handler.process_thread_request(args, request_data)

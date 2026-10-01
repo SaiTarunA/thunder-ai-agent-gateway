@@ -43,7 +43,36 @@ class ChatSummaryHandler(BaseSummaryPipeline):
             if nlp_response.end_date:
                 requested_end = utils.convert_to_utc(nlp_response.end_date, user_timezone)
 
+            if requested_start and requested_end:
+                duration_days = (requested_end - requested_start).total_seconds() / 86400
+                if duration_days > 93:
+                    logger.warning(
+                        f"Requested summary period exceeds 3 months ({duration_days:.1f} days), agentid : {request_data.get('agentid')}"
+                    )
+                    return {
+                        "status": status.HTTP_200_OK,
+                        "msg": "Success",
+                        "message": (
+                            "I can summarize conversations for a period of up to 3 months. "
+                            "For longer timeframes, the high volume of messages can dilute key details and produce less meaningful summaries. "
+                            "Could you please specify a timeframe within 3 months (e.g., the last 30, 60, or 90 days) so I can generate a focused and high-quality summary for you?"
+                        ),
+                    }
+
             requested_message_count: int | None = nlp_response.message_count
+            if requested_message_count and requested_message_count > 10000:
+                logger.warning(
+                    f"Requested summary message count exceeds 10,000 ({requested_message_count}), agentid : {request_data.get('agentid')}"
+                )
+                return {
+                    "status": status.HTTP_200_OK,
+                    "msg": "Success",
+                    "message": (
+                        "Conversation summaries are limited to a maximum of 10,000 messages (the volume corresponding to a 3-month period). "
+                        "For larger message counts, the high volume can dilute key details and produce less meaningful summaries. "
+                        "Could you please specify a count within 10,000 messages (e.g., the last 50, 100, 500, or 1,000 messages) so I can generate a focused and high-quality summary for you?"
+                    ),
+                }
 
             request_data = {**request_data, **await ai_config_builder.prepare_chat_summary_config()}
 
@@ -89,6 +118,23 @@ class ChatSummaryHandler(BaseSummaryPipeline):
 
                     if not segments:
                         return {"status": status.HTTP_500_INTERNAL_SERVER_ERROR, "msg": "Failed", "error": "No segments to process"}
+
+                    # When the existing summary covers from start to finish and no new chat messages exist in any gap, return cached summary directly
+                    has_chat_segments = any(
+                        seg.get("type") == "chats" and len(seg.get("conversations", [])) > 0
+                        for seg in segments
+                    )
+                    if not has_chat_segments:
+                        logger.info(
+                            f"Existing summary covers start to finish and no new chat messages found in gaps. "
+                            f"Returning cached summary without AI call. agentid: {request_data.get('agentid')}"
+                        )
+                        primary_summary = existing_summaries[-1]
+                        cached_msg = primary_summary.summary
+                        if requested_user_name:
+                            pattern = rf"\b{re.escape(requested_user_name)}\b"
+                            cached_msg = re.sub(pattern, "you", cached_msg, flags=re.IGNORECASE)
+                        return {"status": status.HTTP_200_OK, "msg": "Success", "message": cached_msg}
 
                     all_participants: list[str] = []
                     total_conv_count = 0

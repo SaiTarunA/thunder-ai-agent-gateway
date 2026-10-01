@@ -54,6 +54,20 @@ INQUIRY_PHRASES = [
     r"\bweather\s+in\b",
 ]
 
+SEND_ACTION_PATTERNS = [
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)?send\s+(?:a\s+|an\s+|this\s+|the\s+)?(?:chat\s+|text\s+|direct\s+)?(?:message|msg|mail|email|update|note)?\s*to\b",
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)?send\s+(?:this|it)\s+to\b",
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)?post\s+(?:a\s+|this\s+|the\s+)?(?:message|msg|update|announcement)?\s*(?:to|in)\b",
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)?forward\s+(?:this|the|a)?\s*(?:message|msg|email)?\s*to\b",
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)?deliver\s+(?:this|the|a)?\s*(?:message|msg)?\s*to\b",
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)?(?:tell|message|notify|inform)\s+(?:the\s+|my\s+)?[\w\s]+\s+(?:that|saying|about)\b",
+]
+
+RECIPIENT_PATTERN = re.compile(
+    r"(?:send\s+(?:a\s+|an\s+|this\s+|the\s+)?(?:chat\s+|text\s+|direct\s+)?(?:message|msg|mail|email|update|note)?\s*to|send\s+(?:this|it)\s+to|post\s+(?:a\s+|this\s+|the\s+)?(?:message|msg|update|announcement)?\s*(?:to|in)|forward\s+(?:this|the|a)?\s*(?:message|msg|email)?\s*to|deliver\s+(?:this|the|a)?\s*(?:message|msg)?\s*to|(?:tell|message|notify|inform))\s+([a-zA-Z0-9_\s'@.-]+?)(?:\s+(?:that|saying|say|about|to|regarding|with\s+message)|:|,|$)",
+    re.IGNORECASE,
+)
+
 
 class Utils:
 
@@ -161,6 +175,41 @@ class Utils:
                 return True
 
         return False
+
+    def is_send_action_request(self, query: Optional[str]) -> bool:
+        """Determine if a user query instructs the assistant to send, post, forward,
+        or deliver a message to a person, group, or channel.
+        """
+        if not query or not query.strip():
+            return False
+        cleaned = query.strip()
+        lower = cleaned.lower()
+
+        # If it has an explicit upgrade/edit modifier (e.g. "make this professional: ..."),
+        # prioritize that unless it explicitly instructs sending
+        for pattern in EXPLICIT_UPGRADE_PATTERNS:
+            if re.search(pattern, lower):
+                return False
+
+        for pattern in SEND_ACTION_PATTERNS:
+            if re.search(pattern, lower):
+                return True
+
+        return False
+
+    def extract_send_recipient(self, query: Optional[str]) -> Optional[str]:
+        """Extract the intended recipient or target group/channel from a send request."""
+        if not query or not query.strip():
+            return None
+        m = RECIPIENT_PATTERN.search(query.strip())
+        if not m:
+            return None
+        rec = m.group(1).strip()
+        if not rec:
+            return None
+        if rec.lower().startswith("my "):
+            rec = "your " + rec[3:]
+        return rec
 
     def get_zoneinfo(self, tz_name: Optional[str]) -> tzinfo:
         """Resolve a timezone name to a ZoneInfo (or timezone.utc) with legacy alias normalization."""
@@ -314,11 +363,62 @@ class Utils:
     
 
     @staticmethod
-    def calculate_total_duration(start_date: datetime, end_date: datetime) -> str:
-        total_seconds = max(0, int((end_date - start_date).total_seconds()))
-        hours = total_seconds // 3600
-        minutes = (total_seconds % 3600) // 60
-        seconds = total_seconds % 60
+    def calculate_total_duration(start_date: Any, end_date: Any) -> str:
+        """Calculates formatted HH:MM:SS duration between start_date and end_date.
+
+        Accepts datetime objects, date objects, or datetime strings.
+        Normalizes timezone awareness to UTC before computing difference.
+        """
+        if not start_date or not end_date:
+            return "00:00:00"
+
+        def _to_utc_datetime(val: Any) -> Optional[datetime]:
+            if isinstance(val, str):
+                val_str = val.strip()
+                if not val_str:
+                    return None
+                try:
+                    dt = datetime.fromisoformat(val_str)
+                except ValueError:
+                    for fmt in (
+                        "%Y-%m-%d %H:%M:%S.%f",
+                        "%Y-%m-%d %H:%M:%S",
+                        "%Y-%m-%d %H:%M",
+                        "%Y-%m-%d",
+                    ):
+                        try:
+                            dt = datetime.strptime(val_str, fmt)
+                            break
+                        except ValueError:
+                            pass
+                    else:
+                        return None
+            elif isinstance(val, datetime):
+                dt = val
+            elif isinstance(val, date):
+                dt = datetime.combine(val, datetime.min.time())
+            else:
+                return None
+
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+
+        dt_start = _to_utc_datetime(start_date)
+        dt_end = _to_utc_datetime(end_date)
+
+        if not dt_start or not dt_end:
+            return "00:00:00"
+
+        total_seconds = max(0, int((dt_end - dt_start).total_seconds()))
+        days = total_seconds // 86400
+        remaining_seconds = total_seconds % 86400
+        hours = remaining_seconds // 3600
+        minutes = (remaining_seconds % 3600) // 60
+        seconds = remaining_seconds % 60
+
+        if days > 0:
+            return f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 

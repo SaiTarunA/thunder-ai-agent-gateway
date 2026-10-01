@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import status
@@ -50,6 +50,20 @@ class ThreadProcessHandler(BaseSummaryPipeline):
         """
         try:
             category = args.category
+            if category == ThreadCategory.SUMMARIZE and args.message_count and args.message_count > 10000:
+                logger.warning(
+                    f"Requested thread summary message count exceeds 10,000 ({args.message_count}), agentid: {request_data.get('agentid')}"
+                )
+                return {
+                    "status": status.HTTP_200_OK,
+                    "msg": "Success",
+                    "message": (
+                        "Conversation summaries are limited to a maximum of 10,000 messages (the volume corresponding to a 3-month period). "
+                        "For larger message counts, the high volume can dilute key details and produce less meaningful summaries. "
+                        "Could you please specify a count within 10,000 messages (e.g., the last 50, 100, 500, or 1,000 messages) so I can generate a focused and high-quality summary for you?"
+                    ),
+                }
+
             thread_config = await ai_config_builder.prepare_process_thread_config(category)
             if not thread_config:
                 return {
@@ -80,7 +94,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                 }
 
             parent_chat: StreamsUserChatData = TypeAdapter(StreamsUserChatData).validate_python(raw_parent)
-            parent_dt: datetime = utils.convert_to_utc(parent_chat.messagetime, user_timezone)
+            parent_dt: datetime = utils.convert_to_utc(parent_chat.messagetime, source_tz="UTC")
 
             # Dispatch by Category
             if category == ThreadCategory.GENERATE_REPLY:
@@ -194,6 +208,19 @@ class ThreadProcessHandler(BaseSummaryPipeline):
             # Custom/filtered slices bypass and do not overwrite the canonical summary cache.
             # ------------------------------------------------------------------
             if args.message_count:
+                if args.message_count > 10000:
+                    logger.warning(
+                        f"Requested thread summary message count exceeds 10,000 ({args.message_count}), agentid: {request_data.get('agentid')}"
+                    )
+                    return {
+                        "status": status.HTTP_200_OK,
+                        "msg": "Success",
+                        "message": (
+                            "Conversation summaries are limited to a maximum of 10,000 messages (the volume corresponding to a 3-month period). "
+                            "For larger message counts, the high volume can dilute key details and produce less meaningful summaries. "
+                            "Could you please specify a count within 10,000 messages (e.g., the last 50, 100, 500, or 1,000 messages) so I can generate a focused and high-quality summary for you?"
+                        ),
+                    }
                 logger.info(
                     f"Generating summary for last {args.message_count} messages, "
                     f"agentid: {request_data.get('agentid')}"
@@ -219,6 +246,22 @@ class ThreadProcessHandler(BaseSummaryPipeline):
             requested_start, requested_end = self._resolve_thread_bounds(
                 args, parent_dt, user_timezone
             )
+
+            if args.start_date and args.end_date:
+                duration_days = (requested_end - requested_start).total_seconds() / 86400
+                if duration_days > 93:
+                    logger.warning(
+                        f"Requested thread summary period exceeds 3 months ({duration_days:.1f} days), agentid: {request_data.get('agentid')}"
+                    )
+                    return {
+                        "status": status.HTTP_200_OK,
+                        "msg": "Success",
+                        "message": (
+                            "I can summarize conversations for a period of up to 3 months. "
+                            "For longer timeframes, the high volume of messages can dilute key details and produce less meaningful summaries. "
+                            "Could you please specify a timeframe within 3 months (e.g., the last 30, 60, or 90 days) so I can generate a focused and high-quality summary for you?"
+                        ),
+                    }
 
             # 2. Check summary cache FIRST
             raw_summaries = await opensips_db_handler.get_chat_summary_from_db(
@@ -251,6 +294,30 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                         "msg": "Success",
                         "message": self._personalize_summary(cached_text, requested_user_name),
                     }
+
+                # Fast-path: When existing summary covers from start and no new replies arrived up to requested_end, return cached summary directly
+                primary_summary = existing_summaries[-1]
+                if existing_summaries[0].start_date <= requested_start and primary_summary.end_date < requested_end:
+                    trailing_messages = await streams_db_handler.get_streams_thread_messages_by_duration(
+                        request_data,
+                        start_date=primary_summary.end_date + timedelta(seconds=1),
+                        end_date=requested_end,
+                    )
+                    if not trailing_messages:
+                        logger.info(
+                            f"Thread summary already covers from start ({existing_summaries[0].start_date}) to {primary_summary.end_date} "
+                            f"and no new messages exist up to {requested_end}. Returning cached summary directly. agentid: {request_data.get('agentid')}"
+                        )
+                        return {
+                            "status": status.HTTP_200_OK,
+                            "msg": "Success",
+                            "message": self._personalize_summary(primary_summary.summary, requested_user_name),
+                        }
+
+                logger.info(
+                    f"existing summaries cover only partial date range, "
+                    f"will fetch only the delta messages in coverage gaps, agentid: {request_data.get('agentid')}"
+                )
 
                 # Partial summary exists: fetch ONLY the delta messages in coverage gaps
                 response_data = await self._merge_and_update_partial_summaries(
@@ -438,7 +505,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
         if args.start_date:
             requested_start = utils.convert_to_utc(args.start_date, user_timezone)
         else:
-            requested_start = parent_dt
+            requested_start = parent_dt.replace(second=0, microsecond=0)
 
         if args.end_date:
             requested_end = utils.convert_to_utc(args.end_date, user_timezone)
@@ -525,7 +592,10 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                 }
 
             # Check if any new chat messages were actually found in the gap window
-            has_chat_segments = any(seg.get("type") == "chats" for seg in segments)
+            has_chat_segments = any(
+                seg.get("type") == "chats" and len(seg.get("conversations", [])) > 0
+                for seg in segments
+            )
             if not has_chat_segments:
                 logger.info(
                     f"No new thread messages found in gap window since last summary. "
@@ -535,11 +605,13 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                 return {
                     "status": status.HTTP_200_OK,
                     "msg": "Success",
-                    "message": primary_summary.summary,
+                    "message": self._personalize_summary(primary_summary.summary, request_data.get("user_name")),
                 }
 
+            primary_summary = existing_summaries[-1]
+            summary_start = primary_summary.start_date or requested_start
             summary_extra_data = self._aggregate_segment_metadata(
-                segments, requested_start, requested_end
+                segments, summary_start, requested_end
             )
 
             # Merge cached summary notes and new conversation segments
@@ -547,7 +619,6 @@ class ThreadProcessHandler(BaseSummaryPipeline):
 
             # Update the cached summary row with the new extended end_date and merged text
             if response_data.get("message") and not response_data.get("partial_periods"):
-                primary_summary = existing_summaries[-1]
                 await opensips_db_handler.update_chat_summary_by_id(
                     summary_id=primary_summary.id,
                     summary=response_data["message"],
@@ -597,7 +668,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                         if isinstance(last_msg, dict)
                         else getattr(last_msg, "messagetime", None)
                     )
-                    actual_end = utils.convert_to_utc(last_time, user_timezone) if last_time else parent_dt
+                    actual_end = utils.convert_to_utc(last_time, source_tz="UTC") if last_time else parent_dt
                 else:
                     actual_end = parent_dt
 

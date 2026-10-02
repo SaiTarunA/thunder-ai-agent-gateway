@@ -5,10 +5,13 @@ CHAT_SUMMARY_CONSTANTS = {
 You are an AI assistant specialized in analyzing and summarizing chat conversations.
 
 The input contains:
-1. `summary_type` — the requested summary style.
-2. `tone` — optional requested tone.
-3. `format_instruction` — optional user-requested structure or presentation.
-4. A JSON list of chat messages:
+1. `user_focus` / `context` — optional user instructions, specific topics, questions, or exclusions to focus on.
+2. `topic_name` — optional specific topic or subject focus.
+3. `buddy_name` — optional participant focus.
+4. `summary_type` — the requested summary style.
+5. `tone` — optional requested tone.
+6. `format_instruction` — optional user-requested structure or presentation.
+7. A JSON list of chat messages:
 
 {
   "timestamp": "YYYY-MM-DD HH:MM:SS",
@@ -21,10 +24,11 @@ Analyze the conversation and return only the final summary.
 ## Priority
 Follow requirements in this order:
 
-1. Explicit `format_instruction`
-2. Requested `summary_type`
-3. Requested `tone`
-4. Default rules below
+1. Explicit `user_focus`, `context`, or `topic_name` constraints (strictly restrict the summary to the requested focus, topics, or exclusions; omit unrelated discussions).
+2. Explicit `format_instruction`
+3. Requested `summary_type`
+4. Requested `tone`
+5. Default rules below
 
 If `summary_type` is missing or unsupported, use `brief`.
 ## Content Processing
@@ -81,10 +85,13 @@ Use valid Markdown to make the response structured, readable, and visually appea
 You are an AI assistant specialized in merging existing chat summaries and raw chat messages into one accurate, cohesive final summary.
 
 The input contains:
-1. `summary_type` — the requested summary style.
-2. `tone` — optional requested tone.
-3. `format_instruction` — optional user-requested structure or presentation.
-4. `segments` — a chronologically ordered list containing:
+1. `user_focus` / `context` — optional user instructions, specific topics, questions, or exclusions to focus on.
+2. `topic_name` — optional specific topic or subject focus.
+3. `buddy_name` — optional participant focus.
+4. `summary_type` — the requested summary style.
+5. `tone` — optional requested tone.
+6. `format_instruction` — optional user-requested structure or presentation.
+7. `segments` — a chronologically ordered list containing:
 
 {
   "type": "summary",
@@ -105,10 +112,11 @@ Process all segments in the supplied order and return only the final merged summ
 ## Priority
 
 Follow requirements in this order:
-1. Explicit `format_instruction`
-2. Requested `summary_type`
-3. Requested `tone`
-4. Default rules below
+1. Explicit `user_focus`, `context`, or `topic_name` constraints (strictly restrict the summary to the requested focus, topics, or exclusions; omit unrelated discussions).
+2. Explicit `format_instruction`
+3. Requested `summary_type`
+4. Requested `tone`
+5. Default rules below
 
 If `summary_type` is missing or unsupported, use `brief`.
 
@@ -271,3 +279,48 @@ and optional `context`, `topic_name`, `buddy_name` describing the focus requeste
     "max_response_output_tokens": 5000,
     "temperature": 0.7,
 }
+
+# User request and parameter instruction templates for chat and thread summaries
+USER_FOCUS_INSTRUCTION_TEMPLATE = (
+    'Original user request: "{query}". Strictly adhere to this request, filtering content and focusing on what was specifically asked.'
+)
+SUMMARY_TYPE_DETAILED_INSTRUCTION = (
+    "Generate a detailed and comprehensive style summary capturing all discussions, "
+    "decisions, key points, context, and outcomes without omitting important details."
+)
+SUMMARY_TYPE_GENERIC_TEMPLATE = "Generate a '{summary_type}' style summary."
+TONE_INSTRUCTION_TEMPLATE = "Use a '{tone}' tone throughout."
+CONTEXT_INSTRUCTION_TEMPLATE = (
+    "User focus/constraints: {context}. "
+    "Follow these instructions strictly and omit unrelated matters."
+)
+TOPIC_NAME_INSTRUCTION_TEMPLATE = (
+    "Focus strictly on discussions regarding '{topic_name}'. "
+    "Do not include unrelated topics unless directly relevant to '{topic_name}'."
+)
+BUDDY_NAME_INSTRUCTION_TEMPLATE = "Highlight contributions by '{buddy_name}'."
+GROUP_NAME_INSTRUCTION_TEMPLATE = "Focus on interactions within group '{group_name}'."
+
+# Parent message context guidance for thread summaries
+THREAD_PARENT_MESSAGE_NOTE = (
+    "This is the parent message of the thread. Use this only when it is necessary "
+    "for context, not compulsory. When the summary does not need the parent message, "
+    "please ignore it."
+)
+THREAD_PARENT_MESSAGE_INSTRUCTION = (
+    "NOTE ON PARENT MESSAGE: A parent message is provided under 'thread_parent_message' for background context. "
+    "Use this only when it is necessary for context, not compulsory. When the summary of the requested "
+    "messages does not need the parent message, please ignore it."
+)
+
+# Guardrail and limit response messages
+EXCEEDS_MAX_DURATION_RESPONSE = (
+    "I can summarize conversations for a period of up to 3 months. "
+    "For longer timeframes, the high volume of messages can dilute key details and produce less meaningful summaries. "
+    "Could you please specify a timeframe within 3 months (e.g., the last 30, 60, or 90 days) so I can generate a focused and high-quality summary for you?"
+)
+EXCEEDS_MAX_MESSAGES_RESPONSE = (
+    "Conversation summaries are limited to a maximum of 10,000 messages (the volume corresponding to a 3-month period). "
+    "For larger message counts, the high volume can dilute key details and produce less meaningful summaries. "
+    "Could you please specify a count within 10,000 messages (e.g., the last 50, 100, 500, or 1,000 messages) so I can generate a focused and high-quality summary for you?"
+)

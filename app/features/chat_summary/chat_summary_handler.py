@@ -8,6 +8,10 @@ from fastapi import status
 from pydantic import TypeAdapter
 
 from app.ai.config_builder import ai_config_builder
+from app.ai.prompts.chat_summary import (
+    EXCEEDS_MAX_DURATION_RESPONSE,
+    EXCEEDS_MAX_MESSAGES_RESPONSE,
+)
 from app.core.utils import utils
 from app.db.mysql.repositories.opensips_repo import opensips_db_handler
 from app.db.mysql.repositories.streams_repo import streams_db_handler
@@ -52,11 +56,7 @@ class ChatSummaryHandler(BaseSummaryPipeline):
                     return {
                         "status": status.HTTP_200_OK,
                         "msg": "Success",
-                        "message": (
-                            "I can summarize conversations for a period of up to 3 months. "
-                            "For longer timeframes, the high volume of messages can dilute key details and produce less meaningful summaries. "
-                            "Could you please specify a timeframe within 3 months (e.g., the last 30, 60, or 90 days) so I can generate a focused and high-quality summary for you?"
-                        ),
+                        "message": EXCEEDS_MAX_DURATION_RESPONSE,
                     }
 
             requested_message_count: int | None = nlp_response.message_count
@@ -67,11 +67,7 @@ class ChatSummaryHandler(BaseSummaryPipeline):
                 return {
                     "status": status.HTTP_200_OK,
                     "msg": "Success",
-                    "message": (
-                        "Conversation summaries are limited to a maximum of 10,000 messages (the volume corresponding to a 3-month period). "
-                        "For larger message counts, the high volume can dilute key details and produce less meaningful summaries. "
-                        "Could you please specify a count within 10,000 messages (e.g., the last 50, 100, 500, or 1,000 messages) so I can generate a focused and high-quality summary for you?"
-                    ),
+                    "message": EXCEEDS_MAX_MESSAGES_RESPONSE,
                 }
 
             request_data = {**request_data, **await ai_config_builder.prepare_chat_summary_config()}
@@ -87,10 +83,10 @@ class ChatSummaryHandler(BaseSummaryPipeline):
                 logger.info(f"Generating summary for unread messages for agentid : {request_data.get('agentid')}")
                 should_generate_fresh_summary = True
 
-            elif nlp_response.topic_name or nlp_response.buddy_name or nlp_response.is_resummarization_request:
+            elif nlp_response.topic_name or nlp_response.buddy_name or nlp_response.context or nlp_response.is_resummarization_request:
                 logger.info(
                     f"Generating fresh summary for specific category/resummarization (topic: {nlp_response.topic_name}, "
-                    f"buddy: {nlp_response.buddy_name}, resummarize: {nlp_response.is_resummarization_request}) "
+                    f"buddy: {nlp_response.buddy_name}, context: {nlp_response.context}, resummarize: {nlp_response.is_resummarization_request}) "
                     f"for agentid : {request_data.get('agentid')}"
                 )
                 should_generate_fresh_summary = True
@@ -103,13 +99,17 @@ class ChatSummaryHandler(BaseSummaryPipeline):
                 if existing_summaries:
                     existing_summaries = self.deduplicate_and_filter_summaries(existing_summaries)
 
-                    for s in existing_summaries:
-                        if s.start_date == requested_start and s.end_date == requested_end:
-                            logger.info(f"A summary covering the entire requested range already exists, returning cached summary. agentid: {request_data.get('agentid')}")
-                            if requested_user_name:
-                                pattern = rf"\b{re.escape(requested_user_name)}\b"
-                                s.summary = re.sub(pattern, "you", s.summary, flags=re.IGNORECASE)
-                            return {"status": status.HTTP_200_OK, "msg": "Success", "message": s.summary}
+                    exact_cached = self.find_exact_cached_summary(existing_summaries, requested_start, requested_end)
+                    if exact_cached:
+                        logger.info(
+                            f"A summary covering the entire requested range already exists, returning cached summary. "
+                            f"agentid: {request_data.get('agentid')}"
+                        )
+                        return {
+                            "status": status.HTTP_200_OK,
+                            "msg": "Success",
+                            "message": self.personalize_summary(exact_cached, requested_user_name),
+                        }
 
                     gaps = self.find_coverage_gaps(requested_start, requested_end, existing_summaries, request_data)
                     logger.info(f"Found {len(existing_summaries)} existing summaries and {len(gaps)} gaps, agentid: {request_data.get('agentid')}")
@@ -120,47 +120,19 @@ class ChatSummaryHandler(BaseSummaryPipeline):
                         return {"status": status.HTTP_500_INTERNAL_SERVER_ERROR, "msg": "Failed", "error": "No segments to process"}
 
                     # When the existing summary covers from start to finish and no new chat messages exist in any gap, return cached summary directly
-                    has_chat_segments = any(
-                        seg.get("type") == "chats" and len(seg.get("conversations", [])) > 0
-                        for seg in segments
-                    )
-                    if not has_chat_segments:
+                    if not self.has_chat_segments(segments):
                         logger.info(
                             f"Existing summary covers start to finish and no new chat messages found in gaps. "
                             f"Returning cached summary without AI call. agentid: {request_data.get('agentid')}"
                         )
                         primary_summary = existing_summaries[-1]
-                        cached_msg = primary_summary.summary
-                        if requested_user_name:
-                            pattern = rf"\b{re.escape(requested_user_name)}\b"
-                            cached_msg = re.sub(pattern, "you", cached_msg, flags=re.IGNORECASE)
-                        return {"status": status.HTTP_200_OK, "msg": "Success", "message": cached_msg}
+                        return {
+                            "status": status.HTTP_200_OK,
+                            "msg": "Success",
+                            "message": self.personalize_summary(primary_summary.summary, requested_user_name),
+                        }
 
-                    all_participants: list[str] = []
-                    total_conv_count = 0
-                    for seg in segments:
-                        if seg.get("type") == "summary":
-                            extra = seg.get("extra_data") or {}
-                            total_conv_count += extra.get("no_of_conversations", 0)
-                            for p in extra.get("participants_info", []):
-                                if p and p not in all_participants:
-                                    all_participants.append(p)
-                        elif seg.get("type") == "chats":
-                            convs = seg.get("conversations", [])
-                            total_conv_count += len(convs)
-                            for c in convs:
-                                u = c.get("user")
-                                if u and u not in all_participants:
-                                    all_participants.append(u)
-
-                    total_duration = utils.calculate_total_duration(requested_start, requested_end)
-
-                    summary_extra_data = {
-                        "no_of_conversations": total_conv_count,
-                        "participants_info": all_participants,
-                        "total_duration": total_duration,
-                    }
-
+                    summary_extra_data = self.aggregate_segment_metadata(segments, requested_start, requested_end)
                     response_data = await self.merge_segments_into_summary(segments, nlp_response, request_data)
 
                 else:
@@ -208,13 +180,11 @@ class ChatSummaryHandler(BaseSummaryPipeline):
                     else:
                         logger.info(
                             f"Skipping storing summary in DB as it is category/parameter-specific "
-                            f"(topic: {nlp_response.topic_name}, buddy: {nlp_response.buddy_name}, "
+                            f"(topic: {nlp_response.topic_name}, buddy: {nlp_response.buddy_name}, context: {nlp_response.context}, "
                             f"unread: {nlp_response.unread_messages}, count: {nlp_response.message_count}, agentid: {request_data.get('agentid')}"
                         )
 
-                if requested_user_name:
-                    pattern = rf"\b{re.escape(requested_user_name)}\b"
-                    response_data["message"] = re.sub(pattern, "you", response_data["message"], flags=re.IGNORECASE)
+                response_data["message"] = self.personalize_summary(response_data["message"], requested_user_name)
                 logger.info(f"Updated chat summary :: {response_data['message']}, agentid :: {request_data.get('agentid')}")
 
             response_data["request_params"] = request_params
@@ -228,61 +198,22 @@ class ChatSummaryHandler(BaseSummaryPipeline):
 
     async def build_chronological_segments(self, existing_summaries: list[StoredChatSummaryData], gaps: list[dict], request_data: dict) -> list[dict]:
         """Builds a list of segments (existing summaries + newly collected gap chats) sorted chronologically."""
-        try:
-            segments: list[dict] = []
-            user_timezone = request_data.get("timezone")
+        async def fetch_gap(gap_start: datetime, gap_end: datetime) -> list[dict]:
+            gap_nlp = SummaryNLPExtractedData(
+                start_date=gap_start.strftime("%Y-%m-%d %H:%M:%S"),
+                end_date=gap_end.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            gap_chats = await self.collect_user_conversations(
+                gap_nlp, request_data, start_date=gap_start, end_date=gap_end
+            )
+            return gap_chats.get("conversations") if gap_chats else []
 
-            # 1. Convert cached summaries from DB into 'summary' segments with localized date strings
-            for s in existing_summaries:
-                s_start_str = utils.convert_utc_to_timezone(s.start_date, user_timezone)
-                s_end_str = utils.convert_utc_to_timezone(s.end_date, user_timezone)
-                extra = s.parsed_extra_data if hasattr(s, "parsed_extra_data") else (
-                    json.loads(s.extra_data) if isinstance(s.extra_data, str) else (s.extra_data or {})
-                )
-                segments.append({
-                    "type":       "summary",
-                    "text":       s.summary,
-                    "start":      s.start_date,
-                    "end":        s.end_date,
-                    "date_range": f"{s_start_str} to {s_end_str}",
-                    "extra_data": extra,
-                })
-
-            # 2. Query and collect raw chats for each uncovered time gap
-            for gap in gaps:
-                gap_start: datetime = gap["start"]
-                gap_end: datetime   = gap["end"]
-
-                gap_nlp = SummaryNLPExtractedData(
-                    start_date=gap_start.strftime("%Y-%m-%d %H:%M:%S"),
-                    end_date=gap_end.strftime("%Y-%m-%d %H:%M:%S"),
-                )
-                gap_chats = await self.collect_user_conversations(
-                    gap_nlp, request_data, start_date=gap_start, end_date=gap_end
-                )
-                conversations = gap_chats.get("conversations") if gap_chats else []
-
-                gap_start_str = utils.convert_utc_to_timezone(gap_start, user_timezone)
-                gap_end_str = utils.convert_utc_to_timezone(gap_end, user_timezone)
-
-                if conversations:
-                    segments.append({
-                        "type":          "chats",
-                        "conversations": conversations,
-                        "start":         gap_start,
-                        "end":           gap_end,
-                        "date_range":    f"{gap_start_str} to {gap_end_str}",
-                    })
-                else:
-                    logger.info(f"No chats found for gap {gap['start']} → {gap['end']}, agentid: {request_data.get('agentid')}")
-
-            logger.info(f"segments as following : \n{segments}, agentid :: {request_data.get('agentid')}")
-            # Sort all segments together chronologically so the LLM gets an unbroken narrative flow
-            segments.sort(key=lambda x: x["start"])
-            return segments
-        except Exception as e:
-            logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
-            raise e
+        return await super().build_chronological_segments(
+            existing_summaries=existing_summaries,
+            gaps=gaps,
+            request_data=request_data,
+            fetch_gap_conversations=fetch_gap,
+        )
 
     async def collect_user_conversations(
         self,
@@ -336,8 +267,7 @@ class ChatSummaryHandler(BaseSummaryPipeline):
                 #     max_concurrent=5,
                 # )
 
-                normalized = self.normalize_chat_messages(user_chats, user_timezone)
-                conversations = filter_conversations(normalized)
+                conversations = self.normalize_and_filter_chat_messages(user_chats, user_timezone)
 
                 if not conversations:
                     logger.info(f"No valid conversations remaining after filtering noise, agentid : {request_data.get('agentid')}")

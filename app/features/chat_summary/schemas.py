@@ -4,11 +4,13 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.ai import ai_constants
+
 EXCLUDED_PAYLOAD_KEYS = frozenset({"start", "end", "extra_data", "condensed", "unavailable"})
 
 # Keys of a conversation payload that carry the user's requested focus. Only these (not the
 # style keys) are passed to the intermediate "working notes" calls of the batched path.
-FOCUS_KEYS = ("context", "topic_name", "buddy_name")
+FOCUS_KEYS = ("context", "topic_name", "buddy_name", "user_focus")
 
 DEFAULT_BATCHING_SETTINGS = {
     "single_pass_max_input_tokens": 500_000,
@@ -47,6 +49,18 @@ class SummaryNLPExtractedData(BaseModel):
     Added below. `response_text` was present here but unused by any tool schema or by
     this feature's own logic — removed as dead.
     """
+    category: Literal[
+        ai_constants.SummaryCategory.CHAT_SUMMARY,
+        ai_constants.SummaryCategory.THREAD_SUMMARY,
+        ai_constants.SummaryCategory.GENERATE_REPLY,
+    ] = Field(
+        default=ai_constants.SummaryCategory.CHAT_SUMMARY,
+        description=(
+            "'chat_summary' to summarize a chat."
+            "'thread_summary' to summarize a thread."
+            "'generate_reply' to compose a reply to someone else's message or thread."
+        ),
+    )
 
     start_date: Optional[str] = Field(
         None, description="Calculated summary start timestamp in 'YYYY-MM-DD HH:MM:SS' format, or null."
@@ -75,10 +89,11 @@ class SummaryNLPExtractedData(BaseModel):
 
     @property
     def should_store_summary(self) -> bool:
-        """Returns False if summary is specific to a topic, buddy, unread messages or message count."""
+        """Returns False if summary is specific to a topic, buddy, context/focus, unread messages or message count."""
         return not bool(
             self.topic_name
             or self.buddy_name
+            or self.context
             or self.unread_messages
             or self.message_count
         )

@@ -131,3 +131,20 @@ Before responding, verify that:
     "tools": [{"type": "web_search"}],
     "parallel_tool_calls": False,
 }
+
+# User query template for generating thread replies
+THREAD_REPLY_USER_QUERY_TEMPLATE = (
+    "current_user: {current_user}\n"
+    "user_request: {user_req}\n\n"
+    "The following are the messages in the thread in chronological order:\n{conversations}\n\n"
+    "Generate the appropriate, sendable reply as {current_user}. "
+    "If answering the thread requires current knowledge, latest events, real-time facts, or external documentation, "
+    "use the web_search tool to look up accurate information and incorporate it directly into the reply without any meta-talk."
+)
+
+# Critical override instruction when a meta-response is detected
+THREAD_REPLY_META_RETRY_INSTRUCTION_TEMPLATE = (
+    "CRITICAL OVERRIDE: Your previous output was identified as a meta-announcement ('{message}'). "
+    "Do NOT output search announcements, status updates, or phrases like 'Searching...', 'Let me look that up...'. "
+    "Directly return the finalized, substantive reply to be sent in the thread."
+)

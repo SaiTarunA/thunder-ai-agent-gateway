@@ -5,6 +5,9 @@ from fastapi import status
 
 from app.ai import ai_constants
 from app.ai.config_builder import ai_config_builder
+from app.ai.prompts.intent_detection import (
+    SEND_MESSAGE_OUT_OF_SCOPE_NOTIFICATION_TEMPLATE,
+)
 from app.ai.router import model_router
 from app.ai.tokenizer import validate_token_limits
 from app.ai.tools import parse_tool_call_arguments, pydantic_model_to_openai_tool
@@ -114,9 +117,9 @@ class IntentDetectionHandler():
                 upgraded_msg = upgraded_res.get("message", "").strip()
                 recipient = utils.extract_send_recipient(data.user_query)
                 target_phrase = f"to {recipient}" if recipient else "to the person/people who need to receive it"
-                notification_msg = (
-                    f"I don't have the ability to send messages directly, but I have generated/transformed "
-                    f"your message so that you can send it {target_phrase}:\n\n{upgraded_msg}"
+                notification_msg = SEND_MESSAGE_OUT_OF_SCOPE_NOTIFICATION_TEMPLATE.format(
+                    target_phrase=target_phrase,
+                    upgraded_msg=upgraded_msg,
                 )
                 return {
                     "status": status.HTTP_200_OK,
@@ -165,19 +168,23 @@ class IntentDetectionHandler():
                         upgraded_msg = tool_call_response.get("message", "").strip()
                         recipient = utils.extract_send_recipient(request_data.get("user_query"))
                         target_phrase = f"to {recipient}" if recipient else "to the person/people who need to receive it"
-                        tool_call_response["message"] = (
-                            f"I don't have the ability to send messages directly, but I have generated/transformed "
-                            f"your message so that you can send it {target_phrase}:\n\n{upgraded_msg}"
+                        tool_call_response["message"] = SEND_MESSAGE_OUT_OF_SCOPE_NOTIFICATION_TEMPLATE.format(
+                            target_phrase=target_phrase,
+                            upgraded_msg=upgraded_msg,
                         )
                         tool_call_response["type"] = "out_of_scope"
 
-                case ai_constants.FUNCTION_PROCESS_THREAD:
-                    tool_call_response = await thread_process_handler.process_thread_request(args, request_data)
-                    tool_call_response["type"] = "generative_reply"
-
                 case ai_constants.FUNCTION_GENERATE_SUMMARY:
-                    tool_call_response = await chat_summary_handler.process_chat_summary_request(args, request_data)
-                    tool_call_response["type"] = "chat_summary"
+                    category = getattr(args, "category", None) or ai_constants.SummaryCategory.CHAT_SUMMARY
+                    if category == ai_constants.SummaryCategory.CHAT_SUMMARY:
+                        tool_call_response = await chat_summary_handler.process_chat_summary_request(args, request_data)
+                        tool_call_response["type"] = "chat_summary"
+                    elif category in (ai_constants.SummaryCategory.THREAD_SUMMARY, ai_constants.SummaryCategory.GENERATE_REPLY):
+                        tool_call_response = await thread_process_handler.process_thread_request(args, request_data)
+                        tool_call_response["type"] = "generative_reply"
+                    else:
+                        tool_call_response = await chat_summary_handler.process_chat_summary_request(args, request_data)
+                        tool_call_response["type"] = "chat_summary"
 
                 case ai_constants.FUNCTION_GENERAL_QUERY:
                     message = args.message

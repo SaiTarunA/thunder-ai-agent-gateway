@@ -45,38 +45,8 @@ class LunaRequest(BaseModel):
 
 class UpgradeUserChatArgs(BaseModel):
     """No parameters — the model calls this tool with an empty argument object."""
- 
-class ProcessThreadArgs(BaseModel):
-    category: Literal[
-        ai_constants.ThreadCategory.SUMMARIZE,
-        ai_constants.ThreadCategory.GENERATE_REPLY,
-    ] = Field(
-        ...,
-        description=(
-            "'generate_reply' to compose a reply to someone else's message or thread; "
-            "'summarize' to summarize a thread (a parent message with its replies or comments)."
-        ),
-    )
-    start_date: Optional[str] = Field(
-        None, description="Calculated summary start timestamp in 'YYYY-MM-DD HH:MM:SS' format, or null."
-    )
-    end_date: Optional[str] = Field(
-        None, description="Calculated summary end timestamp in 'YYYY-MM-DD HH:MM:SS' format, or null."
-    )
-    message_count: Optional[int] = Field(
-        None, ge=1, le=10000, description="Requested number of messages (maximum 10,000), such as 10 for 'last 10 messages'; otherwise null."
-    )
-    summary_type: Optional[
-        Literal["brief", "short", "long", "detailed", "keypoints", "user_specific", "topic_specific"]
-    ] = Field(
-        None, description="Requested summary-detail level."
-    )
-    tone: Optional[str] = Field(None, description="Requested summary tone, or null.")
-    buddy_name: Optional[str] = Field(None, description="Named buddy, or null.")
-    group_name: Optional[str] = Field(None, description="Named group, or null.")
-    topic_name: Optional[str] = Field(None, description="Named topic or subject focus, or null.")
 
- 
+
  
 class GeneralQueryArgs(BaseModel):
     message: str = Field(
@@ -202,11 +172,14 @@ WEB_SEARCH_TOOL = {
 INTENT_TOOL_SCHEMAS: dict[str, tuple[type[BaseModel], str]] = {
     ai_constants.FUNCTION_GENERATE_SUMMARY: (
         SummaryNLPExtractedData,
-        "Recap chat messages over a scope: a time range (start_date/end_date), the last N messages (message_count), "
-        "unread messages (unread_messages), or selected messages; scopes can be combined. Also refines a previous chat "
-        "summary (is_resummarization_request). Fill only the fields the user supplied; leave the rest null/false. "
-        f"If no scope is given, call {ai_constants.FUNCTION_CLARIFY_USER_QUERY} instead. Not for threads, documents, "
-        "pasted text, calls, or finding a specific message.",
+        "Summarize a conversation or thread, or compose a reply to someone else's message or thread. "
+        "Set 'category' to: "
+        "'chat_summary' for chat conversations across a time range (start_date/end_date), the last N messages (message_count), unread messages (unread_messages), or selected messages; "
+        "'thread_summary' for a thread (a parent message with its replies or comments); "
+        "'generate_reply' to compose a reply to someone else's message or thread. "
+        "Fill only the fields the user supplied; leave the rest null/false. "
+        f"If a chat summary has no scope, call {ai_constants.FUNCTION_CLARIFY_USER_QUERY} instead. "
+        "Not for documents, pasted non-chat text, or finding a specific message.",
     ),
     ai_constants.FUNCTION_UPGRADE_USER_CHAT: (
         UpgradeUserChatArgs,
@@ -216,13 +189,6 @@ INTENT_TOOL_SCHEMAS: dict[str, tuple[type[BaseModel], str]] = {
         "request to the assistant. Never for questions, even with typos or broken grammar. Do NOT use if the user asks "
         "the assistant to send, post, forward, or deliver the message to someone (e.g. 'send a message to the manager that...'); "
         f"use {ai_constants.FUNCTION_OUT_OF_SCOPE} instead. Call with empty arguments.",
-    ),
-    ai_constants.FUNCTION_PROCESS_THREAD: (
-        ProcessThreadArgs,
-        "Compose a reply to someone else's message or thread (category 'generate_reply'), or summarize a thread - a "
-        "parent message with its replies or comments (category 'summarize'). The target message or thread is resolved "
-        "downstream, so call this even when nothing is selected. If the user already wrote the reply and wants it "
-        f"improved, use {ai_constants.FUNCTION_UPGRADE_USER_CHAT} instead.",
     ),
     ai_constants.FUNCTION_GENERAL_QUERY: (
         GeneralQueryArgs,

@@ -10,7 +10,6 @@ and `app.ai.prompts.*` (per-feature instruction text) so each can change on its 
 # each one lives in `app.features.intent_detection.schemas.INTENT_TOOL_SCHEMAS`.
 FUNCTION_GENERATE_SUMMARY = "generate_summary"
 FUNCTION_UPGRADE_USER_CHAT = "upgrade_user_chat"
-FUNCTION_PROCESS_THREAD = "process_thread"
 FUNCTION_GENERAL_QUERY = "general_query"
 FUNCTION_CLARIFY_USER_QUERY = "clarify_user_query"
 FUNCTION_DOCUMENT_INTELLIGENCE = "document_intellegence"
@@ -26,6 +25,7 @@ OPERATION_GENERAL_QUERY = "general_query"
 OPERATION_INTENT_SEARCH = "intent_search"
 
 
-class ThreadCategory(StrEnum):
-    SUMMARIZE = "summarize"
+class SummaryCategory(StrEnum):
+    CHAT_SUMMARY = "chat_summary"
+    THREAD_SUMMARY = "thread_summary"
     GENERATE_REPLY = "generate_reply"

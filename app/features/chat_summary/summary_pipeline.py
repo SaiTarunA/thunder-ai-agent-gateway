@@ -1,11 +1,13 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta
-from typing import Optional, Union
+from typing import Awaitable, Callable, Optional
 
 from app.ai.router import model_router
 from app.ai.tokenizer import count_tokens_for, validate_token_limits
+from app.core.message_cleaner import filter_conversations
 from app.features.chat_summary.batching import chat_summary_batcher
 from app.features.chat_summary.schemas import (
     DEFAULT_BATCHING_SETTINGS,
@@ -14,13 +16,19 @@ from app.features.chat_summary.schemas import (
     SummaryNLPExtractedData,
     TokenLimits,
 )
+from app.ai.prompts.chat_summary import (
+    BUDDY_NAME_INSTRUCTION_TEMPLATE,
+    CONTEXT_INSTRUCTION_TEMPLATE,
+    GROUP_NAME_INSTRUCTION_TEMPLATE,
+    SUMMARY_TYPE_DETAILED_INSTRUCTION,
+    SUMMARY_TYPE_GENERIC_TEMPLATE,
+    TONE_INSTRUCTION_TEMPLATE,
+    TOPIC_NAME_INSTRUCTION_TEMPLATE,
+    USER_FOCUS_INSTRUCTION_TEMPLATE,
+)
 from app.core.utils import utils
-from app.features.intent_detection.schemas import ProcessThreadArgs
 
 logger = logging.getLogger(__name__)
-
-SummaryArgsType = Union[SummaryNLPExtractedData, ProcessThreadArgs]
-
 
 class BaseSummaryPipeline:
     """Shared summarization pipeline for both chat summaries and thread summaries.
@@ -70,6 +78,15 @@ class BaseSummaryPipeline:
                 "timestamp": user_time,
             })
         return result
+
+    def normalize_and_filter_chat_messages(
+        self,
+        chats: list,
+        user_timezone: Optional[str] = "UTC",
+    ) -> list[dict]:
+        """Normalizes chat messages and applies noise filtering."""
+        normalized = self.normalize_chat_messages(chats, user_timezone)
+        return filter_conversations(normalized)
 
     # ------------------------------------------------------------------
     # Caching & Interval Utilities
@@ -173,6 +190,122 @@ class BaseSummaryPipeline:
             logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
             raise e
 
+    def find_exact_cached_summary(
+        self,
+        summaries: list[StoredChatSummaryData],
+        requested_start: datetime,
+        requested_end: datetime,
+    ) -> Optional[str]:
+        """Returns the summary text if a single cached summary exactly covers the requested range."""
+        for s in summaries:
+            if s.start_date == requested_start and s.end_date == requested_end:
+                return s.summary
+        return None
+
+    def has_chat_segments(self, segments: list[dict]) -> bool:
+        """Returns True if any segment contains raw chat messages."""
+        return any(
+            seg.get("type") == "chats" and len(seg.get("conversations", [])) > 0
+            for seg in segments
+        )
+
+    def aggregate_segment_metadata(
+        self,
+        segments: list[dict],
+        requested_start: datetime,
+        requested_end: datetime,
+    ) -> dict:
+        """Aggregates conversation count, unique participants, and total duration across all segments."""
+        all_participants: list[str] = []
+        total_conv_count = 0
+        for seg in segments:
+            if seg.get("type") == "summary":
+                extra = seg.get("extra_data") or {}
+                total_conv_count += extra.get("no_of_conversations", 0)
+                for p in extra.get("participants_info", []):
+                    if p and p not in all_participants:
+                        all_participants.append(p)
+            elif seg.get("type") == "chats":
+                convs = seg.get("conversations", [])
+                total_conv_count += len(convs)
+                for c in convs:
+                    u = c.get("user")
+                    if u and u not in all_participants:
+                        all_participants.append(u)
+
+        return {
+            "no_of_conversations": total_conv_count,
+            "participants_info": all_participants,
+            "total_duration": utils.calculate_total_duration(requested_start, requested_end),
+        }
+
+    def personalize_summary(self, summary_text: str, requested_user_name: Optional[str]) -> str:
+        """Personalizes 2nd person pronoun if requested user is named in summary."""
+        if requested_user_name and summary_text:
+            pattern = rf"\b{re.escape(requested_user_name)}\b"
+            return re.sub(pattern, "you", summary_text, flags=re.IGNORECASE)
+        return summary_text
+
+    async def build_chronological_segments(
+        self,
+        existing_summaries: list[StoredChatSummaryData],
+        gaps: list[dict],
+        request_data: dict,
+        fetch_gap_conversations: Optional[Callable[[datetime, datetime], Awaitable[list[dict]]]] = None,
+    ) -> list[dict]:
+        """Builds a list of segments (existing summaries + newly collected gap chats) sorted chronologically."""
+        try:
+            segments: list[dict] = []
+            user_timezone = request_data.get("timezone")
+
+            # 1. Convert cached summaries from DB into 'summary' segments with localized date strings
+            for s in existing_summaries:
+                s_start_str = utils.convert_utc_to_timezone(s.start_date, user_timezone)
+                s_end_str = utils.convert_utc_to_timezone(s.end_date, user_timezone)
+                extra = s.parsed_extra_data if hasattr(s, "parsed_extra_data") else (
+                    json.loads(s.extra_data) if isinstance(s.extra_data, str) else (s.extra_data or {})
+                )
+                segments.append({
+                    "type": "summary",
+                    "text": s.summary,
+                    "start": s.start_date,
+                    "end": s.end_date,
+                    "date_range": f"{s_start_str} to {s_end_str}",
+                    "extra_data": extra,
+                })
+
+            # 2. Query and collect raw chats for each uncovered time gap
+            if fetch_gap_conversations:
+                for gap in gaps:
+                    gap_start: datetime = gap["start"]
+                    gap_end: datetime = gap["end"]
+
+                    conversations = await fetch_gap_conversations(gap_start, gap_end)
+
+                    gap_start_str = utils.convert_utc_to_timezone(gap_start, user_timezone)
+                    gap_end_str = utils.convert_utc_to_timezone(gap_end, user_timezone)
+
+                    if conversations:
+                        segments.append({
+                            "type": "chats",
+                            "conversations": conversations,
+                            "start": gap_start,
+                            "end": gap_end,
+                            "date_range": f"{gap_start_str} to {gap_end_str}",
+                        })
+                    else:
+                        logger.info(
+                            f"No chats found for gap {gap['start']} → {gap['end']}, agentid: {request_data.get('agentid')}"
+                        )
+
+            # Sort all segments together chronologically so the LLM gets an unbroken narrative flow
+            segments.sort(key=lambda x: x["start"])
+            logger.info(f"Segments assembled: count={len(segments)}, agentid: {request_data.get('agentid')}")
+            return segments
+        except Exception as e:
+            logger.error(f"Error building chronological segments: {e}, agentid :: {request_data.get('agentid')}")
+            raise e
+
     # ------------------------------------------------------------------
     # Batching & Prompt Helpers
     # ------------------------------------------------------------------
@@ -183,14 +316,14 @@ class BaseSummaryPipeline:
     async def _count_tokens(self, text: str, request_data: dict) -> int:
         return await asyncio.to_thread(count_tokens_for, text, request_data["model_info"])
 
-    def _focus_from_nlp(self, nlp_response: SummaryArgsType, request_data: dict) -> dict:
+    def _focus_from_nlp(self, nlp_response: SummaryNLPExtractedData, request_data: dict) -> dict:
         """The requested focus (context/topic/buddy), without the style keys."""
         data: dict = {}
         self.append_user_instructions(data, nlp_response, request_data)
         return {k: v for k, v in data.items() if k in FOCUS_KEYS}
 
-    def append_user_instructions(self, data: dict, nlp_response: SummaryArgsType, request_data: dict):
-        """Appends user instructions based on nlp_response (supports both SummaryNLPExtractedData and ProcessThreadArgs)."""
+    def append_user_instructions(self, data: dict, nlp_response: SummaryNLPExtractedData, request_data: dict):
+        """Appends user instructions based on nlp_response (supports SummaryNLPExtractedData)."""
         try:
             summary_type = getattr(nlp_response, "summary_type", None)
             tone = getattr(nlp_response, "tone", None)
@@ -199,24 +332,30 @@ class BaseSummaryPipeline:
             buddy_name = getattr(nlp_response, "buddy_name", None)
             group_name = getattr(nlp_response, "group_name", None)
 
+            # Preserve the original user prompt if it had specific instructions/focus
+            original_query = request_data.get("user_query")
+            if original_query and isinstance(original_query, str):
+                orig_stripped = original_query.strip()
+                # Ensure it is natural text and not already a JSON dump
+                if not (orig_stripped.startswith("{") or orig_stripped.startswith("[")):
+                    request_data["original_user_query"] = orig_stripped
+                    data["user_focus"] = USER_FOCUS_INSTRUCTION_TEMPLATE.format(query=orig_stripped)
+
             if summary_type:
                 if summary_type in ("detailed", "long"):
-                    data["summary_type"] = (
-                        "Generate a detailed and comprehensive style summary capturing all discussions, "
-                        "decisions, key points, context, and outcomes without omitting important details."
-                    )
+                    data["summary_type"] = SUMMARY_TYPE_DETAILED_INSTRUCTION
                 else:
-                    data["summary_type"] = f"Generate a '{summary_type}' style summary."
+                    data["summary_type"] = SUMMARY_TYPE_GENERIC_TEMPLATE.format(summary_type=summary_type)
             if tone:
-                data["tone"] = f"Use a '{tone}' tone throughout."
+                data["tone"] = TONE_INSTRUCTION_TEMPLATE.format(tone=tone)
             if context:
-                data["context"] = context
+                data["context"] = CONTEXT_INSTRUCTION_TEMPLATE.format(context=context)
             if topic_name:
-                data["topic_name"] = f"Keep discussions about '{topic_name}' prominent."
+                data["topic_name"] = TOPIC_NAME_INSTRUCTION_TEMPLATE.format(topic_name=topic_name)
             if buddy_name:
-                data["buddy_name"] = f"Highlight contributions by '{buddy_name}'."
+                data["buddy_name"] = BUDDY_NAME_INSTRUCTION_TEMPLATE.format(buddy_name=buddy_name)
             if group_name:
-                data["group_name"] = f"Focus on interactions within group '{group_name}'."
+                data["group_name"] = GROUP_NAME_INSTRUCTION_TEMPLATE.format(group_name=group_name)
         except Exception as e:
             logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
             raise e
@@ -226,7 +365,7 @@ class BaseSummaryPipeline:
     # ------------------------------------------------------------------
 
     async def merge_segments_into_summary(
-        self, segments: list[dict], nlp_response: SummaryArgsType, request_data: dict
+        self, segments: list[dict], nlp_response: SummaryNLPExtractedData, request_data: dict
     ) -> dict:
         """Sends all segments to the model to produce one merged cohesive summary.
 
@@ -259,7 +398,7 @@ class BaseSummaryPipeline:
             raise e
 
     async def summarize_conversations(
-        self, conversations: dict, nlp_response: SummaryArgsType, request_data: dict
+        self, conversations: dict, nlp_response: SummaryNLPExtractedData, request_data: dict
     ) -> dict:
         """Summarizes collected conversations in one call, or in time-aligned batches when too large."""
         try:
@@ -292,7 +431,7 @@ class BaseSummaryPipeline:
             raise e
 
     async def _condense_chat_segments(
-        self, segments: list[dict], nlp_response: SummaryArgsType, request_data: dict, limits: TokenLimits
+        self, segments: list[dict], nlp_response: SummaryNLPExtractedData, request_data: dict, limits: TokenLimits
     ) -> list[dict]:
         """Replaces raw chat segments with working-notes segments in parallel while preserving stored summaries."""
         try:
@@ -393,7 +532,7 @@ class BaseSummaryPipeline:
             raise e
 
     async def _collapse_until_fits(
-        self, segments: list[dict], nlp_response: SummaryArgsType, request_data: dict
+        self, segments: list[dict], nlp_response: SummaryNLPExtractedData, request_data: dict
     ) -> list[dict]:
         """Merges adjacent notes segments (hierarchical reduce) until the final merge fits in one call."""
         try:
@@ -470,7 +609,7 @@ class BaseSummaryPipeline:
             raise e
 
     async def _final_merge(
-        self, segments: list[dict], nlp_response: SummaryArgsType, request_data: dict
+        self, segments: list[dict], nlp_response: SummaryNLPExtractedData, request_data: dict
     ) -> dict:
         """Builds the user-facing summary from summary/notes/chat segments with the merge prompt."""
         try:

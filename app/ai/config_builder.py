@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from app.ai import ai_constants
 from app.ai import registry
-from app.ai.ai_constants import ThreadCategory
+from app.ai.ai_constants import SummaryCategory
 from app.ai.prompts import chat_summary, intent_detection, reply_to_thread, upgrade_user_chat
 from app.core.utils import utils
 from app.features.intent_detection.schemas import WEB_SEARCH_TOOL
@@ -54,19 +54,20 @@ class AIConfigBuilder:
 
             thread_context = ""
             if request_data.get("smsgid"):
-                thread_context = (
-                    f"- selected_thread_available: true\n"
-                    f"- Note: The user requested from a thread level (smsgid: {request_data.get('smsgid')}). "
-                    f"For any request summarizing or replying to this thread/messages, route to thread-level functions ({ai_constants.FUNCTION_PROCESS_THREAD}) instead of chat-level functions.\n"
+                thread_context = intent_detection.THREAD_CONTEXT_INSTRUCTION_TEMPLATE.format(
+                    smsgid=request_data.get("smsgid"),
+                    function_generate_summary=ai_constants.FUNCTION_GENERATE_SUMMARY,
+                    thread_summary_category=ai_constants.SummaryCategory.THREAD_SUMMARY,
+                    generate_reply_category=ai_constants.SummaryCategory.GENERATE_REPLY,
+                    chat_summary_category=ai_constants.SummaryCategory.CHAT_SUMMARY,
                 )
 
             # Prepend current user timezone, datetime, and thread context
-            intent_detection_info["instructions"] = (
-                f"CURRENT CONTEXT:\n"
-                f"- current_user_timezone: {tz_str}\n"
-                f"- current_user_datetime: {now_datetime}\n"
-                f"{thread_context}\n"
-                f"{intent_detection_info['instructions']}"
+            intent_detection_info["instructions"] = intent_detection.INTENT_DETECTION_CONTEXT_HEADER_TEMPLATE.format(
+                tz_str=tz_str,
+                now_datetime=now_datetime,
+                thread_context=thread_context,
+                instructions=intent_detection_info["instructions"],
             )
 
             logger.info(f"intent_detection_info :: \n{intent_detection_info}")
@@ -115,10 +116,12 @@ class AIConfigBuilder:
             logger.error(f"Error :: {e}")
             return None
 
-    async def prepare_process_thread_config(self, category: ThreadCategory | str):
+    async def prepare_process_thread_config(
+        self, request_data: dict, category: SummaryCategory | str | None = None
+    ):
         try:
             tools = []
-            if category == ThreadCategory.SUMMARIZE:
+            if category == SummaryCategory.THREAD_SUMMARY:
                 cfg = chat_summary.CHAT_SUMMARY_CONSTANTS
                 process_thread_info = {
                     **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4_1_MINI),
@@ -134,7 +137,7 @@ class AIConfigBuilder:
                     "parallel_tool_calls": cfg.get("parallel_tool_calls", False),
                     "operation_type": ai_constants.OPERATION_PROCESS_THREAD,
                 }
-            elif category == ThreadCategory.GENERATE_REPLY:
+            elif category == SummaryCategory.GENERATE_REPLY:
                 cfg = reply_to_thread.REPLY_TO_THREAD_CONSTANTS
                 tools = cfg.get("tools", [WEB_SEARCH_TOOL])
                 process_thread_info = {
@@ -147,10 +150,14 @@ class AIConfigBuilder:
             else:
                 raise ValueError(f"Invalid category :: {category}")
 
-            now_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            process_thread_info["instructions"] = (
-                f"CURRENT CONTEXT:\n- current_utc_datetime: {now_datetime}\n\n"
-                + process_thread_info["instructions"]
+            tz_str = request_data.get("timezone") or "UTC"
+            user_tz = utils.get_zoneinfo(tz_str)
+            now_dt = datetime.now(user_tz)
+            now_datetime = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+            process_thread_info["instructions"] = intent_detection.USER_DATETIME_CONTEXT_HEADER_TEMPLATE.format(
+                tz_str=tz_str,
+                now_datetime=now_datetime,
+                instructions=process_thread_info["instructions"],
             )
 
             logger.info(f"process_thread_info :: \n{process_thread_info}")
@@ -160,8 +167,9 @@ class AIConfigBuilder:
             logger.error(f"Error :: {e}")
             return None
 
-    async def prepare_general_query_config(self):
+    async def prepare_general_query_config(self, request_data: dict | None = None):
         try:
+            request_data = request_data or {}
             cfg = intent_detection.GENERAL_QUERY_CONSTANTS
 
             general_query_info = {
@@ -172,10 +180,15 @@ class AIConfigBuilder:
                 "operation_type": ai_constants.OPERATION_GENERAL_QUERY,
             }
 
-            now_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            general_query_info["instructions"] = (
-                f"CURRENT CONTEXT:\n- current_utc_datetime: {now_datetime}\n\n"
-                + general_query_info["instructions"]
+            tz_str = request_data.get("timezone") or "UTC"
+            user_tz = utils.get_zoneinfo(tz_str)
+
+            now_dt = datetime.now(user_tz)
+            now_datetime = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+            general_query_info["instructions"] = intent_detection.USER_DATETIME_CONTEXT_HEADER_TEMPLATE.format(
+                tz_str=tz_str,
+                now_datetime=now_datetime,
+                instructions=general_query_info["instructions"],
             )
 
             logger.info(f"general_query_info :: \n{general_query_info}")

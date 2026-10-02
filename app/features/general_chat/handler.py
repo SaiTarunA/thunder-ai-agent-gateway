@@ -43,7 +43,7 @@ class GeneralChatHandler():
         ensuring a substantive answer is returned without meta-talk.
         """
         try:
-            general_query_config = await ai_config_builder.prepare_general_query_config()
+            general_query_config = await ai_config_builder.prepare_general_query_config(request_data)
             general_query_data = {**request_data, **general_query_config}
 
             total_content = str(f"{general_query_data['user_query']}\n{general_query_data['instructions']}")

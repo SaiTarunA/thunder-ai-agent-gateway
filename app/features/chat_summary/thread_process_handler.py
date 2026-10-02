@@ -8,7 +8,7 @@ from fastapi import status
 from pydantic import TypeAdapter
 
 from app.ai import ai_constants
-from app.ai.ai_constants import ThreadCategory
+from app.ai.ai_constants import SummaryCategory
 from app.ai.config_builder import ai_config_builder
 from app.ai.router import model_router
 from app.ai.tokenizer import validate_token_limits
@@ -19,9 +19,19 @@ from app.db.mysql.repositories.streams_repo import streams_db_handler
 from app.features.chat_summary.schemas import (
     StoredChatSummaryData,
     StreamsUserChatData,
+    SummaryNLPExtractedData,
+)
+from app.ai.prompts.chat_summary import (
+    EXCEEDS_MAX_DURATION_RESPONSE,
+    EXCEEDS_MAX_MESSAGES_RESPONSE,
+    THREAD_PARENT_MESSAGE_INSTRUCTION,
+    THREAD_PARENT_MESSAGE_NOTE,
+)
+from app.ai.prompts.reply_to_thread import (
+    THREAD_REPLY_META_RETRY_INSTRUCTION_TEMPLATE,
+    THREAD_REPLY_USER_QUERY_TEMPLATE,
 )
 from app.features.chat_summary.summary_pipeline import BaseSummaryPipeline
-from app.features.intent_detection.schemas import ProcessThreadArgs
 from app.workers.attachment_worker import (
     TEMP_ATTACHMENT_DIR,
     process_messages_attachments,
@@ -32,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 class ThreadProcessHandler(BaseSummaryPipeline):
 
-    async def process_thread_request(self, args: ProcessThreadArgs, request_data: dict) -> dict:
+    async def process_thread_request(self, args: SummaryNLPExtractedData, request_data: dict) -> dict:
         """Unified handler for thread summarization and thread replies.
 
         Handles:
@@ -50,21 +60,17 @@ class ThreadProcessHandler(BaseSummaryPipeline):
         """
         try:
             category = args.category
-            if category == ThreadCategory.SUMMARIZE and args.message_count and args.message_count > 10000:
+            if category == SummaryCategory.THREAD_SUMMARY and args.message_count and args.message_count > 10000:
                 logger.warning(
                     f"Requested thread summary message count exceeds 10,000 ({args.message_count}), agentid: {request_data.get('agentid')}"
                 )
                 return {
                     "status": status.HTTP_200_OK,
                     "msg": "Success",
-                    "message": (
-                        "Conversation summaries are limited to a maximum of 10,000 messages (the volume corresponding to a 3-month period). "
-                        "For larger message counts, the high volume can dilute key details and produce less meaningful summaries. "
-                        "Could you please specify a count within 10,000 messages (e.g., the last 50, 100, 500, or 1,000 messages) so I can generate a focused and high-quality summary for you?"
-                    ),
+                    "message": EXCEEDS_MAX_MESSAGES_RESPONSE,
                 }
 
-            thread_config = await ai_config_builder.prepare_process_thread_config(category)
+            thread_config = await ai_config_builder.prepare_process_thread_config(request_data, category)
             if not thread_config:
                 return {
                     "status": status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -97,10 +103,10 @@ class ThreadProcessHandler(BaseSummaryPipeline):
             parent_dt: datetime = utils.convert_to_utc(parent_chat.messagetime, source_tz="UTC")
 
             # Dispatch by Category
-            if category == ThreadCategory.GENERATE_REPLY:
+            if category == SummaryCategory.GENERATE_REPLY:
                 return await self._handle_generate_reply(parent_chat, request_data, thread_data)
 
-            elif category == ThreadCategory.SUMMARIZE:
+            elif category == SummaryCategory.THREAD_SUMMARY:
                 return await self._handle_summarize_thread(
                     args, parent_chat, parent_dt, request_data, thread_data
                 )
@@ -138,13 +144,10 @@ class ThreadProcessHandler(BaseSummaryPipeline):
 
             current_user = request_data.get("user_name") or request_data.get("agentid") or "User"
             user_req = thread_data.get("user_query") or ""
-            thread_data["user_query"] = (
-                f"current_user: {current_user}\n"
-                f"user_request: {user_req}\n\n"
-                f"The following are the messages in the thread in chronological order:\n{conversations}\n\n"
-                f"Generate the appropriate, sendable reply as {current_user}. "
-                f"If answering the thread requires current knowledge, latest events, real-time facts, or external documentation, "
-                f"use the web_search tool to look up accurate information and incorporate it directly into the reply without any meta-talk."
+            thread_data["user_query"] = THREAD_REPLY_USER_QUERY_TEMPLATE.format(
+                current_user=current_user,
+                user_req=user_req,
+                conversations=conversations,
             )
 
             total_content = str(f"{thread_data['user_query']}\n{thread_data['instructions']}")
@@ -162,9 +165,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                 retry_data = thread_data.copy()
                 retry_data["instructions"] = (
                     f"{retry_data['instructions']}\n\n"
-                    f"CRITICAL OVERRIDE: Your previous output was identified as a meta-announcement ('{message}'). "
-                    f"Do NOT output search announcements, status updates, or phrases like 'Searching...', 'Let me look that up...'. "
-                    f"Directly return the finalized, substantive reply to be sent in the thread."
+                    f"{THREAD_REPLY_META_RETRY_INSTRUCTION_TEMPLATE.format(message=message)}"
                 )
                 try:
                     retry_resp = await model_router.generate(retry_data)
@@ -190,7 +191,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
 
     async def _handle_summarize_thread(
         self,
-        args: ProcessThreadArgs,
+        args: SummaryNLPExtractedData,
         parent_chat: StreamsUserChatData,
         parent_dt: datetime,
         request_data: dict,
@@ -215,11 +216,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                     return {
                         "status": status.HTTP_200_OK,
                         "msg": "Success",
-                        "message": (
-                            "Conversation summaries are limited to a maximum of 10,000 messages (the volume corresponding to a 3-month period). "
-                            "For larger message counts, the high volume can dilute key details and produce less meaningful summaries. "
-                            "Could you please specify a count within 10,000 messages (e.g., the last 50, 100, 500, or 1,000 messages) so I can generate a focused and high-quality summary for you?"
-                        ),
+                        "message": EXCEEDS_MAX_MESSAGES_RESPONSE,
                     }
                 logger.info(
                     f"Generating summary for last {args.message_count} messages, "
@@ -229,10 +226,10 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                     args, parent_chat, request_data, thread_data, requested_user_name
                 )
 
-            if args.topic_name or args.buddy_name:
+            if args.topic_name or args.buddy_name or args.context:
                 logger.info(
                     f"Generating fresh summary for thread filter "
-                    f"(topic: {args.topic_name}, buddy: {args.buddy_name}), "
+                    f"(topic: {args.topic_name}, buddy: {args.buddy_name}, context: {args.context}), "
                     f"agentid: {request_data.get('agentid')}"
                 )
                 return await self._summarize_filtered_thread(
@@ -256,11 +253,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                     return {
                         "status": status.HTTP_200_OK,
                         "msg": "Success",
-                        "message": (
-                            "I can summarize conversations for a period of up to 3 months. "
-                            "For longer timeframes, the high volume of messages can dilute key details and produce less meaningful summaries. "
-                            "Could you please specify a timeframe within 3 months (e.g., the last 30, 60, or 90 days) so I can generate a focused and high-quality summary for you?"
-                        ),
+                        "message": EXCEEDS_MAX_DURATION_RESPONSE,
                     }
 
             # 2. Check summary cache FIRST
@@ -292,7 +285,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                     return {
                         "status": status.HTTP_200_OK,
                         "msg": "Success",
-                        "message": self._personalize_summary(cached_text, requested_user_name),
+                        "message": self.personalize_summary(cached_text, requested_user_name),
                     }
 
                 # Fast-path: When existing summary covers from start and no new replies arrived up to requested_end, return cached summary directly
@@ -311,7 +304,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                         return {
                             "status": status.HTTP_200_OK,
                             "msg": "Success",
-                            "message": self._personalize_summary(primary_summary.summary, requested_user_name),
+                            "message": self.personalize_summary(primary_summary.summary, requested_user_name),
                         }
 
                 logger.info(
@@ -348,7 +341,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                 if "error" in response_data:
                     return response_data
 
-            personalized_message = self._personalize_summary(
+            personalized_message = self.personalize_summary(
                 response_data.get("message", ""), requested_user_name
             )
 
@@ -367,7 +360,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
 
     async def _summarize_by_message_count(
         self,
-        args: ProcessThreadArgs,
+        args: SummaryNLPExtractedData,
         parent_chat: Optional[StreamsUserChatData],
         request_data: dict,
         thread_data: dict,
@@ -415,26 +408,20 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                 )
                 if formatted_parent:
                     chat_data["thread_parent_message"] = {
-                        "note": (
-                            "This is the parent message of the thread. Use this only when it is necessary "
-                            "for context, not compulsory. When the summary does not need the parent message, "
-                            "please ignore it."
-                        ),
+                        "note": THREAD_PARENT_MESSAGE_NOTE,
                         "parent_message": formatted_parent[0],
                     }
 
             # Augment instructions to inform model how to treat parent message
             thread_data["instructions"] = (
                 f"{thread_data.get('instructions', '')}\n\n"
-                "NOTE ON PARENT MESSAGE: A parent message is provided under 'thread_parent_message' for background context. "
-                "Use this only when it is necessary for context, not compulsory. When the summary of the requested "
-                "messages does not need the parent message, please ignore it."
+                f"{THREAD_PARENT_MESSAGE_INSTRUCTION}"
             )
 
             self.append_user_instructions(chat_data, args, thread_data)
             response_data = await self.summarize_conversations(chat_data, args, thread_data)
 
-            personalized_message = self._personalize_summary(
+            personalized_message = self.personalize_summary(
                 response_data.get("message", ""), requested_user_name
             )
             return {
@@ -448,7 +435,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
 
     async def _summarize_filtered_thread(
         self,
-        args: ProcessThreadArgs,
+        args: SummaryNLPExtractedData,
         parent_chat: StreamsUserChatData,
         request_data: dict,
         thread_data: dict,
@@ -483,7 +470,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
             self.append_user_instructions(chat_data, args, thread_data)
             response_data = await self.summarize_conversations(chat_data, args, thread_data)
 
-            personalized_message = self._personalize_summary(
+            personalized_message = self.personalize_summary(
                 response_data.get("message", ""), requested_user_name
             )
             return {
@@ -497,7 +484,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
 
     def _resolve_thread_bounds(
         self,
-        args: ProcessThreadArgs,
+        args: SummaryNLPExtractedData,
         parent_dt: datetime,
         user_timezone: Optional[str],
     ) -> tuple[datetime, datetime]:
@@ -533,29 +520,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
         requested_end: datetime,
     ) -> dict:
         """Aggregates conversation count, unique participant names, and duration across segments."""
-        all_participants: list[str] = []
-        total_conv_count = 0
-        for seg in segments:
-            if seg.get("type") == "summary":
-                extra = seg.get("extra_data") or {}
-                total_conv_count += extra.get("no_of_conversations", 0)
-                for p in extra.get("participants_info", []):
-                    if p and p not in all_participants:
-                        all_participants.append(p)
-            elif seg.get("type") == "chats":
-                convs = seg.get("conversations", [])
-                total_conv_count += len(convs)
-                for c in convs:
-                    u = c.get("user")
-                    if u and u not in all_participants:
-                        all_participants.append(u)
-
-        total_duration = utils.calculate_total_duration(requested_start, requested_end)
-        return {
-            "no_of_conversations": total_conv_count,
-            "participants_info": all_participants,
-            "total_duration": total_duration,
-        }
+        return self.aggregate_segment_metadata(segments, requested_start, requested_end)
 
     async def _merge_and_update_partial_summaries(
         self,
@@ -564,7 +529,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
         requested_end: datetime,
         parent_chat: StreamsUserChatData,
         parent_dt: datetime,
-        args: ProcessThreadArgs,
+        args: SummaryNLPExtractedData,
         request_data: dict,
         thread_data: dict,
     ) -> dict:
@@ -592,11 +557,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                 }
 
             # Check if any new chat messages were actually found in the gap window
-            has_chat_segments = any(
-                seg.get("type") == "chats" and len(seg.get("conversations", [])) > 0
-                for seg in segments
-            )
-            if not has_chat_segments:
+            if not self.has_chat_segments(segments):
                 logger.info(
                     f"No new thread messages found in gap window since last summary. "
                     f"Returning cached summary without LLM call. agentid: {request_data.get('agentid')}"
@@ -605,7 +566,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
                 return {
                     "status": status.HTTP_200_OK,
                     "msg": "Success",
-                    "message": self._personalize_summary(primary_summary.summary, request_data.get("user_name")),
+                    "message": self.personalize_summary(primary_summary.summary, request_data.get("user_name")),
                 }
 
             primary_summary = existing_summaries[-1]
@@ -638,7 +599,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
 
     async def _generate_fresh_thread_summary(
         self,
-        args: ProcessThreadArgs,
+        args: SummaryNLPExtractedData,
         requested_start: datetime,
         requested_end: datetime,
         parent_chat: StreamsUserChatData,
@@ -649,7 +610,6 @@ class ThreadProcessHandler(BaseSummaryPipeline):
     ) -> dict:
         """Fetches thread replies once, generates fresh summary, and persists to DB if unfiltered."""
         try:
-            user_timezone = request_data.get("timezone")
 
             # If start_date and end_date were specified, fetch by duration
             if args.start_date and args.end_date:
@@ -698,8 +658,8 @@ class ThreadProcessHandler(BaseSummaryPipeline):
             self.append_user_instructions(chat_data, args, thread_data)
             response_data = await self.summarize_conversations(chat_data, args, thread_data)
 
-            # Persist fresh summary in DB if summarization succeeded and not partial
-            if response_data.get("message") and not response_data.get("partial_periods"):
+            # Persist fresh summary in DB if summarization succeeded, not partial, and not filtered/custom
+            if response_data.get("message") and not response_data.get("partial_periods") and args.should_store_summary:
                 await opensips_db_handler.insert_chat_summary_into_db(
                     response_data["message"],
                     requested_start,
@@ -718,13 +678,6 @@ class ThreadProcessHandler(BaseSummaryPipeline):
         except Exception as e:
             logger.error(f"Error in _generate_fresh_thread_summary: {e}, agentid :: {request_data.get('agentid')}")
             raise e
-
-    def _personalize_summary(self, summary_text: str, requested_user_name: Optional[str]) -> str:
-        """Personalizes 2nd person pronoun if requested user is named in summary."""
-        if requested_user_name and summary_text:
-            pattern = rf"\b{re.escape(requested_user_name)}\b"
-            return re.sub(pattern, "you", summary_text, flags=re.IGNORECASE)
-        return summary_text
 
     # ------------------------------------------------------------------
     # Thread Message Formatting & Chronological Segment Building
@@ -758,9 +711,7 @@ class ThreadProcessHandler(BaseSummaryPipeline):
             # )
 
             user_timezone = request_data.get("timezone")
-            normalized = self.normalize_chat_messages(all_chats, user_timezone)
-            conversations = filter_conversations(normalized)
-            return conversations
+            return self.normalize_and_filter_chat_messages(all_chats, user_timezone)
         except Exception as e:
             logger.exception(f"Error formatting thread messages: {e}")
             return []
@@ -774,68 +725,24 @@ class ThreadProcessHandler(BaseSummaryPipeline):
         request_data: dict,
     ) -> list[dict]:
         """Builds chronological segments (stored summaries + delta messages fetched for gaps)."""
-        try:
-            segments: list[dict] = []
-            user_timezone = request_data.get("timezone")
+        async def fetch_gap(gap_start: datetime, gap_end: datetime) -> list[dict]:
+            raw_gap_replies = await streams_db_handler.get_streams_thread_messages_by_duration(
+                request_data, start_date=gap_start, end_date=gap_end
+            )
+            include_parent = (gap_start <= parent_dt <= gap_end)
+            return self.format_thread_messages(
+                parent_chat=parent_chat,
+                raw_replies=raw_gap_replies,
+                request_data=request_data,
+                include_parent=include_parent,
+            )
 
-            # 1. Convert cached summaries from DB into 'summary' segments
-            for s in existing_summaries:
-                s_start_str = utils.convert_utc_to_timezone(s.start_date, user_timezone)
-                s_end_str = utils.convert_utc_to_timezone(s.end_date, user_timezone)
-                extra = s.parsed_extra_data if hasattr(s, "parsed_extra_data") else (
-                    json.loads(s.extra_data) if isinstance(s.extra_data, str) else (s.extra_data or {})
-                )
-                segments.append({
-                    "type": "summary",
-                    "text": s.summary,
-                    "start": s.start_date,
-                    "end": s.end_date,
-                    "date_range": f"{s_start_str} to {s_end_str}",
-                    "extra_data": extra,
-                })
-
-            # 2. Fetch delta messages strictly for each gap window
-            for gap in gaps:
-                gap_start: datetime = gap["start"]
-                gap_end: datetime = gap["end"]
-
-                raw_gap_replies = await streams_db_handler.get_streams_thread_messages_by_duration(
-                    request_data, start_date=gap_start, end_date=gap_end
-                )
-
-                # Only include parent if it actually falls within this specific gap window
-                include_parent = (gap_start <= parent_dt <= gap_end)
-                gap_chats = self.format_thread_messages(
-                    parent_chat=parent_chat,
-                    raw_replies=raw_gap_replies,
-                    request_data=request_data,
-                    include_parent=include_parent,
-                )
-
-                gap_start_str = utils.convert_utc_to_timezone(gap_start, user_timezone)
-                gap_end_str = utils.convert_utc_to_timezone(gap_end, user_timezone)
-
-                if gap_chats:
-                    segments.append({
-                        "type": "chats",
-                        "conversations": gap_chats,
-                        "start": gap_start,
-                        "end": gap_end,
-                        "date_range": f"{gap_start_str} to {gap_end_str}",
-                    })
-                else:
-                    logger.info(
-                        f"No thread messages found for gap {gap['start']} → {gap['end']}, "
-                        f"agentid: {request_data.get('agentid')}"
-                    )
-
-            # Sort all segments together chronologically so the LLM receives an unbroken narrative flow
-            segments.sort(key=lambda x: x["start"])
-            logger.info(f"Thread segments assembled: count={len(segments)}, agentid: {request_data.get('agentid')}")
-            return segments
-        except Exception as e:
-            logger.exception(f"Error building chronological thread segments: {e}")
-            raise e
+        return await self.build_chronological_segments(
+            existing_summaries=existing_summaries,
+            gaps=gaps,
+            request_data=request_data,
+            fetch_gap_conversations=fetch_gap,
+        )
 
 
 thread_process_handler = ThreadProcessHandler()

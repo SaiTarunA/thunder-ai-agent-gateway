@@ -62,6 +62,30 @@ WHERE
 ORDER BY m.messagetime ASC, m.smsgid ASC
 """
 
+DB_GET_MESSAGE_BY_ID = """
+SELECT
+    m.siteid,
+    m.sid,
+    m.smsgid,
+    m.commentvia,
+    m.msgtype,
+    m.message,
+    m.archiveid,
+    m.messagetime,
+    m.editedon,
+    m.isdeleted,
+    s.teamstreamtype
+FROM streams.streammessages m
+INNER JOIN streams.streams s
+    ON s.id = m.sid
+WHERE
+    m.siteid = :site_id
+    AND m.sid = :sid
+    AND m.smsgid = :message_id
+    AND m.msgtype IN (0, 20)
+    AND m.isdeleted = 0
+"""
+
 DB_GET_MESSAGES_FOR_BULK_INDEXING = """
 SELECT
     m.siteid,

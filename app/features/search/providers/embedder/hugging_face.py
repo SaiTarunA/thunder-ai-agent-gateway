@@ -1,6 +1,9 @@
-from app.features.search.providers.interfaces import EmbeddingProvider
+import asyncio
 from threading import Lock
+
 from sentence_transformers import SentenceTransformer
+
+from app.features.search.providers.interfaces import EmbeddingProvider
 
 
 class HuggingFaceEmbeddingProvider(EmbeddingProvider):
@@ -22,9 +25,16 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
     async def embed_text(self, text: str) -> list[float]:
         """Return the embedding for the given text."""
         await self.initialize_model()
-        return self.model.encode(text).tolist()
+        # model.encode() is synchronous/CPU-bound - run it off the event
+        # loop so it doesn't stall every other concurrent request being
+        # served by this process while inference runs.
+        embedding = await asyncio.to_thread(self.model.encode, text)
+        return embedding.tolist()
 
     async def embed_documents(self, documents: list[str], batch_size: int) -> list[list[float]]:
         """Return the embeddings for the given list of documents."""
         await self.initialize_model()
-        return self.model.encode(documents, batch_size=batch_size).tolist()
+        embeddings = await asyncio.to_thread(
+            self.model.encode, documents, batch_size=batch_size
+        )
+        return embeddings.tolist()

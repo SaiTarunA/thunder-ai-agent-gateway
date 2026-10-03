@@ -1,11 +1,16 @@
 import logging
 import struct
-from typing import Sequence
+from typing import Any, Sequence
+
+from redis.commands.search.query import Query
 
 from app.features.search.indexing.models import SearchMessage
 from app.features.search.providers.interfaces import BulkWriter
+from app.features.search.providers.retriever.redis.query_builder import _escape_tag
 
 logger = logging.getLogger(__name__)
+
+_DELETE_BATCH_SIZE = 500
 
 
 class RedisBulkIndexer(BulkWriter):
@@ -13,9 +18,11 @@ class RedisBulkIndexer(BulkWriter):
         self,
         client,
         key_prefix: str = "search:messages:",
+        index_name: str = "streams-messages-v1",
     ):
         self.client = client
         self.key_prefix = key_prefix
+        self.index_name = index_name
 
     async def bulk_index(
         self,
@@ -55,6 +62,41 @@ class RedisBulkIndexer(BulkWriter):
             )
 
         return success_count, failure_count
+
+    async def delete(self, message_id: Any) -> bool:
+        key = f"{self.key_prefix}{message_id}"
+        deleted = await self.client.delete(key)
+        return bool(deleted)
+
+    async def delete_by_sid(self, site_id: int, sid: int) -> int:
+        filter_expr = (
+            f"@site_id:{{{_escape_tag(site_id)}}} @sid:{{{_escape_tag(sid)}}}"
+        )
+
+        ft = self.client.ft(self.index_name)
+        deleted = 0
+
+        while True:
+            query = (
+                Query(filter_expr)
+                .paging(0, _DELETE_BATCH_SIZE)
+                .no_content()
+                .dialect(2)
+            )
+
+            result = await ft.search(query)
+
+            if not result.docs:
+                break
+
+            keys = [doc.id for doc in result.docs]
+            await self.client.delete(*keys)
+            deleted += len(keys)
+
+            if len(keys) < _DELETE_BATCH_SIZE:
+                break
+
+        return deleted
 
     @staticmethod
     def _to_document(message: SearchMessage) -> dict:

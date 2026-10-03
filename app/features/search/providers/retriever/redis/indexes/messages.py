@@ -25,7 +25,11 @@ class MessagesIndex(RedisIndexDefinition):
     def fields(self) -> list[Field]:
         return [
             TagField("site_id"),
-            NumericField("message_id", sortable=True),
+            # TAG, not NUMERIC: these ids are ~1.8e18 (19-digit snowflake-
+            # style), far past a double's exact-integer range (~9e15) -
+            # NUMERIC would silently round them. TAG compares as exact
+            # strings, same as sid/author_archive_id/thread_root_id below.
+            TagField("message_id"),
             TagField("sid"),
             TagField("channel_type"),
             TagField("message_type"),

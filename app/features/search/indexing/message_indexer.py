@@ -74,6 +74,40 @@ class MessageIndexer:
 
         return result
 
+    async def index_message(
+        self,
+        site_id: int,
+        sid: int,
+        message_id: int,
+    ) -> dict[str, int]:
+        """Re-fetch a single message by id and upsert it. Used by the
+        live create/edit indexing event - always reads the current DB row
+        rather than trusting the caller's payload, so out-of-order delivery
+        across worker processes still converges on the right state.
+
+        No-ops (fetched=0) if the row is missing, not an indexable msgtype,
+        or already soft-deleted - the caller doesn't need to pre-filter.
+        """
+        row = await self.db_handler.get_message_by_id(
+            site_id=site_id,
+            sid=sid,
+            message_id=message_id,
+        )
+
+        if row is None:
+            logger.info(
+                "index_message :: no indexable row for site_id=%s sid=%s "
+                "message_id=%s (missing, wrong msgtype, or deleted)",
+                site_id,
+                sid,
+                message_id,
+            )
+            return {"fetched": 0, "indexed": 0, "failed": 0}
+
+        indexed, failed = await self._embed_and_index_batch([row])
+
+        return {"fetched": 1, "indexed": indexed, "failed": failed}
+
     async def index_since(
         self,
         since: datetime,

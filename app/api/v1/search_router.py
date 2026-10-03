@@ -1,12 +1,14 @@
 from fastapi import APIRouter, status
 import logging
 
+from app.api.v1.search_indexing_router import search_indexing_router
 from app.features.search.domain.models import SearchContextRequest
 from app.features.search.module import search_module
 
 logger = logging.getLogger(__name__)
 
 search_router = APIRouter()
+search_router.include_router(search_indexing_router, prefix="/index")
 
 
 @search_router.get("/info")

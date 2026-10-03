@@ -1,6 +1,7 @@
 import logging
-from typing import Sequence
+from typing import Any, Sequence
 
+from opensearchpy.exceptions import NotFoundError
 from opensearchpy.helpers import async_bulk
 
 from app.features.search.indexing.models import SearchMessage
@@ -55,6 +56,32 @@ class OpenSearchBulkIndexer(BulkWriter):
             )
 
         return success_count, failure_count
+
+    async def delete(self, message_id: Any) -> bool:
+        try:
+            await self.client.delete(
+                index=self.index_alias,
+                id=str(message_id),
+            )
+            return True
+        except NotFoundError:
+            return False
+
+    async def delete_by_sid(self, site_id: int, sid: int) -> int:
+        response = await self.client.delete_by_query(
+            index=self.index_alias,
+            body={
+                "query": {
+                    "bool": {
+                        "filter": [
+                            {"term": {"site_id": str(site_id)}},
+                            {"term": {"sid": sid}},
+                        ]
+                    }
+                }
+            },
+        )
+        return response.get("deleted", 0)
 
     @staticmethod
     def _to_document(message: SearchMessage) -> dict:

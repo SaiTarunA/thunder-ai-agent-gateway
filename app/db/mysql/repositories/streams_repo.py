@@ -224,6 +224,35 @@ class StreamsDBHandler:
             )
             return []
 
+    async def get_message_by_id(
+        self,
+        site_id: int,
+        sid: int,
+        message_id: int,
+    ) -> Optional[dict]:
+        try:
+            params = {
+                "site_id": site_id,
+                "sid": sid,
+                "message_id": message_id,
+            }
+
+            result = await db_connector.execute(
+                db_config.DB_STREAMS,
+                queries.DB_GET_MESSAGE_BY_ID,
+                params,
+            )
+
+            return result[0] if result else None
+        except Exception:
+            logger.exception(
+                "Error fetching message by id: site_id=%s, sid=%s, message_id=%s",
+                site_id,
+                sid,
+                message_id,
+            )
+            raise
+
     async def get_messages_for_bulk_indexing(
         self,
         after_messagetime,

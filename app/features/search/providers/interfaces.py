@@ -98,6 +98,18 @@ class BulkWriter(ABC):
     ) -> tuple[int, int]:
         raise NotImplementedError
 
+    @abstractmethod
+    async def delete(self, message_id: Any) -> bool:
+        """Remove a single document by its message id. Returns True if a
+        document was found and removed, False if it was already absent."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def delete_by_sid(self, site_id: int, sid: int) -> int:
+        """Remove every document for the given stream. Returns the number
+        of documents deleted."""
+        raise NotImplementedError
+
 
 class CheckpointStore(ABC):
     """Abstraction over backfill checkpoint persistence."""

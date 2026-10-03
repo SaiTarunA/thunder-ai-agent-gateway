@@ -162,6 +162,9 @@ class SearchContext(BaseModel):
                 f"Limit cannot exceed {SearchConfig.max_page_limit}"
             )
 
+        if self.limit < 0:
+            raise ValueError("Limit must be a non-negative integer")
+
         return self
  
 WEB_SEARCH_TOOL = {

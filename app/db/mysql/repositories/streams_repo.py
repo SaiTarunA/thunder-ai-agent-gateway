@@ -78,9 +78,7 @@ class StreamsDBHandler:
             return data if data else []
 
         except Exception as e:
-            logger.error(
-                f"Error :: {e}, agentid :: {request_data.get('agentid')}"
-            )
+            logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
             return []
 
     async def get_streams_parent_messages(self, request_data):
@@ -140,6 +138,128 @@ class StreamsDBHandler:
         except Exception as e:
             logger.error(f"Error :: {e}, agentid :: {request_data.get('agentid')}")
             return []
+
+    async def get_search_allowed_sids(self, archive_id: int) -> list[int]:
+        try:
+            params = {
+                "param_archive_id": archive_id,
+            }
+
+            data = await db_connector.execute(
+                db_config.DB_STREAMS,
+                queries.DB_GET_SEARCH_ALLOWED_SIDS,
+                params,
+            )
+
+            return [int(row["sid"]) for row in data] if data else []
+
+        except Exception:
+            logger.exception(
+                "Failed to fetch search-allowed SIDs for archive_id=%s",
+                archive_id,
+            )
+            raise
+
+    async def get_search_contributor_thread_root_ids(
+        self,
+        *,
+        site_id: int,
+        archive_id: int,
+    ) -> list[int]:
+        try:
+            params = {
+                "param_site_id": site_id,
+                "param_archive_id": archive_id,
+            }
+
+            data = await db_connector.execute(
+                db_config.DB_STREAMS,
+                queries.DB_GET_SEARCH_CONTRIBUTOR_THREAD_ROOT_IDS,
+                params,
+            )
+
+            return [int(row["smsgid"]) for row in data] if data else []
+
+        except Exception:
+            logger.exception(
+                "Failed to fetch contributor thread roots for "
+                "site_id=%s, archive_id=%s",
+                site_id,
+                archive_id,
+            )
+            raise
+
+    async def get_messages_for_indexing(
+        self,
+        site_id: int,
+        sids: list[int],
+    ) -> list[dict]:
+        try:
+            if not sids:
+                return []
+
+            sid_params = {f"sid_{index}": sid for index, sid in enumerate(sids)}
+
+            sid_placeholders = ", ".join(f":{name}" for name in sid_params)
+
+            query = queries.DB_GET_MESSAGES_FOR_INDEXING.format(
+                sid_placeholders=sid_placeholders
+            )
+
+            params = {
+                "site_id": site_id,
+                **sid_params,
+            }
+
+            result = await db_connector.execute(
+                db_config.DB_STREAMS,
+                query,
+                params,
+            )
+
+            return result
+        except Exception as e:
+            logger.error(
+                f"Error fetching messages for indexing: site_id={site_id}, sids={sids}, error={e}"
+            )
+            return []
+
+    async def get_messages_for_bulk_indexing(
+        self,
+        after_messagetime,
+        after_smsgid: int,
+        batch_size: int,
+    ) -> list[dict]:
+        try:
+            params = {
+                "after_messagetime": after_messagetime,
+                "after_smsgid": after_smsgid,
+                "batch_size": batch_size,
+            }
+
+            result = await db_connector.execute(
+                db_config.DB_STREAMS,
+                queries.DB_GET_MESSAGES_FOR_BULK_INDEXING,
+                params,
+            )
+
+            if result is None:
+                raise RuntimeError(
+                    "Database returned None while fetching messages for "
+                    "bulk indexing. Check whether the database connection "
+                    "pool is initialized."
+                )
+
+            return result
+        except Exception:
+            logger.exception(
+                "Error fetching messages for bulk indexing: "
+                "after_messagetime=%s, after_smsgid=%s, batch_size=%s",
+                after_messagetime,
+                after_smsgid,
+                batch_size,
+            )
+            raise
 
 
     async def get_streams_thread_messages_by_duration(self, request_data, start_date, end_date):

@@ -85,10 +85,10 @@ class OpenSearchResponseMapper(ResponseMapper):
             author_archive_id=int(source["author_archive_id"]),
             author_name=source.get("author_name"),
             author_username=source.get("author_username"),
-            conversation_name=source.get("conversation_name"),
-            conversation_type=(
-                ChannelType(source["conversation_type"])
-                if source.get("conversation_type")
+            channel_name=source.get("channel_name"),
+            channel_type=(
+                ChannelType(source["channel_type"])
+                if source.get("channel_type")
                 else None
             ),
             created_at=(

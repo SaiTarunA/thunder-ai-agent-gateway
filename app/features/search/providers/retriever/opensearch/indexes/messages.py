@@ -29,21 +29,16 @@ class MessagesIndex(OpenSearchIndexDefinition):
                 "site_id": {
                     "type": "keyword",
                 },
-                "site_name": {
-                    "type": "keyword",
-                },
-
                 "message_id": {
                     "type": "long",
                 },
                 "sid": {
                     "type": "long",
                 },
-
-                "conversation_type": {
+                "channel_type": {
                     "type": "keyword",
                 },
-                "conversation_name": {
+                "channel_name": {
                     "type": "text",
                     "fields": {
                         "keyword": {
@@ -51,20 +46,14 @@ class MessagesIndex(OpenSearchIndexDefinition):
                         }
                     },
                 },
-
                 "message_type": {
                     "type": "keyword",
                 },
-
                 "text": {
                     "type": "text",
                     "analyzer": "standard",
                 },
-
                 "author_archive_id": {
-                    "type": "long",
-                },
-                "author_account_id": {
                     "type": "long",
                 },
                 "author_username": {
@@ -83,14 +72,12 @@ class MessagesIndex(OpenSearchIndexDefinition):
                         }
                     },
                 },
-
                 "created_at": {
                     "type": "date",
                 },
                 "updated_at": {
                     "type": "date",
                 },
-
                 "thread_root_id": {
                     "type": "long",
                 },
@@ -100,7 +87,6 @@ class MessagesIndex(OpenSearchIndexDefinition):
                 "is_thread_reply": {
                     "type": "boolean",
                 },
-
                 "is_deleted": {
                     "type": "boolean",
                 },
@@ -110,7 +96,6 @@ class MessagesIndex(OpenSearchIndexDefinition):
                 "is_pinned": {
                     "type": "boolean",
                 },
-
                 "embedding": {
                     "type": "knn_vector",
                     "dimension": 384,
@@ -120,7 +105,6 @@ class MessagesIndex(OpenSearchIndexDefinition):
                         "engine": "lucene",
                     },
                 },
-
                 "embedding_version": {
                     "type": "keyword",
                 },

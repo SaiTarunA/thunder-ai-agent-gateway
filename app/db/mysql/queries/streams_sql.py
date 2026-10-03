@@ -19,6 +19,91 @@ DB_GET_STREAMS_THREAD_MESSAGES_BY_DURATION = "SELECT sm.message, sm.messagetime,
 DB_GET_STREAMS_THREAD_MESSAGES_BY_MESSAGE_COUNT = "SELECT sm.message, sm.messagetime, sm.archiveid, sm.sid, sm.accountid, si.username, si.siteid, si.firstname, si.lastname FROM streammessages sm, streammemberspersonalinfo si WHERE sm.msgtype IN (20,23,24,25,26,27,28,81) AND sm.sharemsgid = :param_smsgid AND sm.archiveid = si.im_archiveid AND sm.isdeleted = 0 AND si.isdeleted = 0 UNION SELECT sm.message, sm.messagetime, sm.archiveid, sm.sid, sm.accountid, si.username, si.siteid, si.firstname, si.lastname FROM streammessages sm, streammemberspersonalinfo si WHERE sm.msgtype IN (20,23,24,25,26,27,28,81) AND sm.commentvia = :param_smsgid AND sm.archiveid = si.im_archiveid AND sm.isdeleted = 0 AND si.isdeleted = 0 ORDER BY messagetime DESC LIMIT :param_message_count"
 
 
+# ---------- SEARCH ----------
+DB_GET_SEARCH_ALLOWED_SIDS = """
+    SELECT DISTINCT sid
+    FROM streammembersinfo
+    WHERE archiveid = :param_archive_id
+      AND isdeleted = 0
+      AND mode_of_join != 20;
+"""
+
+DB_GET_SEARCH_CONTRIBUTOR_THREAD_ROOT_IDS = """
+    SELECT DISTINCT smsgid
+    FROM streammessages
+    WHERE siteid = :param_site_id
+      AND archiveid = :param_archive_id
+      AND commentvia = 0
+      AND role = 2
+      AND isdeleted = 0;
+"""
+
+DB_GET_MESSAGES_FOR_INDEXING = """
+SELECT
+    m.siteid,
+    m.sid,
+    m.smsgid,
+    m.commentvia,
+    m.msgtype,
+    m.message,
+    m.archiveid,
+    m.messagetime,
+    m.editedon,
+    m.pinstatus,
+    m.isdeleted,
+    s.teamstreamtype,
+    s.streamname AS channel_name,
+    p.username,
+    p.firstname,
+    p.lastname
+FROM streams.streammessages m
+INNER JOIN streams.streams s
+    ON s.id = m.sid
+LEFT JOIN streams.streammemberspersonalinfo p
+    ON p.im_archiveid = m.archiveid
+    AND p.siteid = m.siteid
+WHERE
+    m.siteid = :site_id
+    AND m.sid IN ({sid_placeholders})
+    AND m.msgtype IN (0, 20)
+    AND m.isdeleted = 0
+ORDER BY m.messagetime ASC, m.smsgid ASC
+"""
+
+DB_GET_MESSAGES_FOR_BULK_INDEXING = """
+SELECT
+    m.siteid,
+    m.sid,
+    m.smsgid,
+    m.commentvia,
+    m.msgtype,
+    m.message,
+    m.archiveid,
+    m.messagetime,
+    m.editedon,
+    m.pinstatus,
+    m.isdeleted,
+    s.teamstreamtype,
+    s.streamname AS channel_name,
+    p.username,
+    p.firstname,
+    p.lastname
+FROM streams.streammessages m
+INNER JOIN streams.streams s
+    ON s.id = m.sid
+LEFT JOIN streams.streammemberspersonalinfo p
+    ON p.im_archiveid = m.archiveid
+    AND p.siteid = m.siteid
+WHERE
+    m.msgtype IN (0, 20)
+    AND m.isdeleted = 0
+    AND (
+        m.messagetime > :after_messagetime
+        OR (m.messagetime = :after_messagetime AND m.smsgid > :after_smsgid)
+    )
+ORDER BY m.messagetime ASC, m.smsgid ASC
+LIMIT :batch_size
+"""
 
 # =========== INSERT ===========
 

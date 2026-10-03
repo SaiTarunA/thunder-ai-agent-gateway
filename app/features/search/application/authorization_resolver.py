@@ -1,31 +1,33 @@
+from app.db.mysql.repositories.streams_repo import streams_db_handler
 from app.features.search.domain.models import SearchAccess
 
 
 class AuthorizationResolver:
 
-    def resolve(
+    def __init__(self, db_handler=streams_db_handler):
+        self._db_handler = db_handler
+
+    async def resolve(
         self,
         *,
         site_id: int,
         archive_id: int,
     ) -> SearchAccess:
-        # TODO:
-        # Resolve from the database:
-        #
-        # 1. allowed_sids:
-        #    Conversations the user can normally access.
-        #
-        # 2. contributor_thread_root_ids:
-        #    Thread roots where the user has contributor access.
-        #
-        # Contributor access must NOT grant access to the
-        # entire conversation/SID.
+        allowed_sids = await self._db_handler.get_search_allowed_sids(
+            archive_id=archive_id,
+        )
 
-        allowed_sids = frozenset()
-        contributor_thread_root_ids = frozenset()
+        contributor_thread_root_ids = (
+            await self._db_handler.get_search_contributor_thread_root_ids(
+                site_id=site_id,
+                archive_id=archive_id,
+            )
+        )
 
         return SearchAccess(
             site_id=site_id,
-            allowed_sids=allowed_sids,
-            contributor_thread_root_ids=contributor_thread_root_ids,
+            allowed_sids=frozenset(allowed_sids),
+            contributor_thread_root_ids=frozenset(
+                contributor_thread_root_ids
+            ),
         )

@@ -6,15 +6,30 @@ from app.features.search.domain.cursor import (
     SearchCursorCodec,
     SearchQueryHasher,
 )
-from app.features.search.domain.enums import RetrievalMethodType
+from app.features.search.domain.enums import (
+    RetrievalMethodType,
+    RetrievalStatus,
+    SortDirectionType,
+    SortType,
+)
 from app.features.search.domain.models import (
+    MessagesData,
     RetrievalPlan,
     RetrievalRequest,
+    RetrievalResult,
     SearchContextRequest,
     SearchCursor,
 )
+from app.features.search.domain.response_models import (
+    ContentTypeResultResponse,
+    MessageSearchResult,
+    SearchCandidateResponse,
+    SearchResponse,
+    SearchResponseMetadata,
+)
 from app.features.search.providers.interfaces import (
     EmbeddingProvider,
+    Retriever,
 )
 from app.features.search.application.authorization_resolver import (
     AuthorizationResolver,
@@ -22,18 +37,6 @@ from app.features.search.application.authorization_resolver import (
 from app.features.search.application.filter_resolver import FilterResolver
 from app.features.search.application.query_processor import QueryProcessor
 from app.features.search.application.retrieval_planner import RetrievalPlanner
-from app.features.search.providers.retriever.opensearch.indexes.resolver import (
-    OpenSearchIndexResolver,
-)
-from app.features.search.providers.retriever.opensearch.query_builder import (
-    OpenSearchQueryBuilder,
-)
-from app.features.search.providers.retriever.opensearch.response_mapper import (
-    OpenSearchResponseMapper,
-)
-from app.features.search.providers.retriever.opensearch.retriever import (
-    OpenSearchRetriever,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +52,7 @@ class SearchService:
         filter_resolver: FilterResolver,
         retrieval_planner: RetrievalPlanner,
         embedding_provider: EmbeddingProvider,
-        retriever: OpenSearchRetriever,
+        retriever: Retriever,
         cursor_codec: SearchCursorCodec,
         query_hasher: SearchQueryHasher,
     ):
@@ -84,7 +87,7 @@ class SearchService:
 
         archive_id = int(request.archiveid)
 
-        access = self._authorization_resolver.resolve(
+        access = await self._authorization_resolver.resolve(
             site_id=site_id,
             archive_id=archive_id,
         )
@@ -136,6 +139,13 @@ class SearchService:
                 processed_query.embedding_query,
             )
 
+        use_offset_pagination = (
+            RetrievalMethodType.LEXICAL in plan.methods
+            and RetrievalMethodType.SEMANTIC in plan.methods
+            and request.sort == SortType.SCORE
+            and request.sort_direction == SortDirectionType.DESC
+        )
+
         results = {}
         next_search_after = {}
 
@@ -155,6 +165,12 @@ class SearchService:
                     search_after = None
             else:
                 search_after = None
+
+            current_offset = (
+                int(search_after[0])
+                if use_offset_pagination and search_after is not None
+                else 0
+            )
 
             retrieval_request = RetrievalRequest(
                 query=processed_query.lexical_query,
@@ -182,10 +198,17 @@ class SearchService:
 
             results[content_type] = retrieval_result
 
-            next_search_after[content_type] = self._get_next_search_after(
-                candidates=retrieval_result.candidates,
-                limit=plan.limit,
-            )
+            if use_offset_pagination:
+                next_search_after[content_type] = self._get_next_offset(
+                    candidates=retrieval_result.candidates,
+                    limit=plan.limit,
+                    current_offset=current_offset,
+                )
+            else:
+                next_search_after[content_type] = self._get_next_search_after(
+                    candidates=retrieval_result.candidates,
+                    limit=plan.limit,
+                )
 
         next_cursor = self._build_next_cursor(
             request=request,
@@ -199,13 +222,63 @@ class SearchService:
             f"has_next_cursor :: {next_cursor is not None}"
         )
 
-        return {
-            "ok": True,
-            "results": results,
-            "response_metadata": {
-                "next_cursor": next_cursor,
-            }
+        return self._build_response(
+            results=results,
+            next_cursor=next_cursor,
+        ).model_dump(mode="json")
+
+    def _build_response(
+        self,
+        *,
+        results: dict,
+        next_cursor: str | None,
+    ) -> SearchResponse:
+
+        response_results = {
+            content_type: self._build_content_type_result(retrieval_result)
+            for content_type, retrieval_result in results.items()
         }
+
+        return SearchResponse(
+            ok=True,
+            results=response_results,
+            response_metadata=SearchResponseMetadata(
+                next_cursor=next_cursor,
+            ),
+        )
+
+    def _build_content_type_result(
+        self,
+        retrieval_result: RetrievalResult | None,
+    ) -> ContentTypeResultResponse:
+
+        if retrieval_result is None:
+            return ContentTypeResultResponse(
+                status=RetrievalStatus.SUCCESS,
+                candidates=[],
+            )
+
+        candidates = [
+            SearchCandidateResponse(
+                document_id=candidate.document_id,
+                score=candidate.raw_score,
+                data=(
+                    MessageSearchResult.model_validate(
+                        candidate.data,
+                        from_attributes=True,
+                    )
+                    if isinstance(candidate.data, MessagesData)
+                    else None
+                ),
+            )
+            for candidate in retrieval_result.candidates
+        ]
+
+        return ContentTypeResultResponse(
+            status=retrieval_result.status,
+            error=retrieval_result.error,
+            candidates=candidates,
+        )
 
     def _get_next_search_after(
         self,
@@ -225,6 +298,21 @@ class SearchService:
             return None
 
         return last_candidate.sort_values
+
+    def _get_next_offset(
+        self,
+        *,
+        candidates,
+        limit: int,
+        current_offset: int,
+    ):
+        if not candidates:
+            return None
+
+        if len(candidates) < limit:
+            return None
+
+        return (current_offset + limit,)
 
     def _validate_cursor(
         self,

@@ -45,7 +45,9 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
             "sort": self._build_sort(request),
         }
 
-        if request.search_after is not None:
+        if request.use_offset_pagination:
+            body["from"] = request.offset
+        elif request.search_after is not None:
             body["search_after"] = list(
                 request.search_after
             )
@@ -67,7 +69,7 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
                             "query": request.query,
                             "fields": [
                                 "text^5",
-                                "conversation_name^2",
+                                "channel_name^2",
                                 "author_name^1.5",
                                 "author_username",
                             ],
@@ -91,6 +93,8 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
                 "query_vector is required for semantic retrieval"
             )
 
+        k = request.limit * 2
+
         return {
             "bool": {
                 "must": [
@@ -98,7 +102,7 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
                         "knn": {
                             "embedding": {
                                 "vector": request.query_vector,
-                                "k": request.pagination_depth,
+                                "k": k,
                             }
                         }
                     }
@@ -119,6 +123,8 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
                 "query_vector is required for hybrid retrieval"
             )
 
+        k = min(max(request.limit // 4, 1), request.limit - 1)
+
         return {
             "hybrid": {
                 "queries": [
@@ -127,7 +133,7 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
                             "query": request.query,
                             "fields": [
                                 "text^5",
-                                "conversation_name^2",
+                                "channel_name^2",
                                 "author_name^1.5",
                                 "author_username",
                             ],
@@ -138,7 +144,7 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
                         "knn": {
                             "embedding": {
                                 "vector": request.query_vector,
-                                "k": request.pagination_depth,
+                                "k": k,
                             }
                         }
                     },
@@ -179,7 +185,7 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
             result.append(
                 {
                     "terms": {
-                        "conversation_type": [
+                        "channel_type": [
                             channel_type.value
                             for channel_type in filters.channel_types
                         ]
@@ -304,18 +310,23 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
         direction = request.sort_direction.value
 
         if request.sort == SortType.SCORE:
-            return [
+            sort = [
                 {
                     "_score": {
                         "order": direction,
                     }
-                },
-                {
-                    "message_id": {
-                        "order": "asc",
-                    }
-                },
+                }
             ]
+            if not request.is_hybrid:
+                sort.append(
+                    {
+                        "message_id": {
+                            "order": "asc",
+                        }
+                    }
+                )
+
+            return sort
 
         if request.sort == SortType.TIMESTAMP:
             return [

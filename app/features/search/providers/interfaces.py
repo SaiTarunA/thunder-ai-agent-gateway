@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from datetime import datetime
+from typing import Any, Sequence
 
 from app.features.search.domain.enums import RetrievalMethodType
 from app.features.search.domain.models import (
@@ -78,4 +79,48 @@ class ResponseMapper(ABC):
         retrieval_methods: tuple[RetrievalMethodType, ...],
         latency_ms: int,
     ) -> RetrievalResult:
+        raise NotImplementedError
+
+
+class BulkWriter(ABC):
+    """
+    Abstraction over the search index write path.
+
+    The indexing pipeline does not know whether documents are persisted
+    to OpenSearch, Redis, or another backend.
+    """
+
+    @abstractmethod
+    async def bulk_index(
+        self,
+        messages: Sequence[Any],
+        chunk_size: int = 500,
+    ) -> tuple[int, int]:
+        raise NotImplementedError
+
+
+class CheckpointStore(ABC):
+    """Abstraction over backfill checkpoint persistence."""
+
+    @abstractmethod
+    async def get(self, job_name: str) -> dict | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def save(
+        self,
+        job_name: str,
+        *,
+        since: datetime,
+        after_messagetime: datetime,
+        after_smsgid: int,
+        total_fetched: int,
+        total_indexed: int,
+        total_failed: int,
+        status: str = "in_progress",
+    ) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def clear(self, job_name: str) -> None:
         raise NotImplementedError

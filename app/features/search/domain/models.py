@@ -88,6 +88,9 @@ class SearchContext(BaseModel):
                 f"Limit cannot exceed {SearchConfig.max_page_limit}"
             )
 
+        if self.limit < 0:
+            raise ValueError("Limit must be a non-negative integer")
+
         return self
 
 
@@ -180,6 +183,24 @@ class RetrievalRequest:
             and RetrievalMethodType.SEMANTIC in self.methods
         )
 
+    @property
+    def use_offset_pagination(self) -> bool:
+        """Hybrid queries sorted by score/desc don't return per-hit sort
+        values, so search_after can't be derived. Fall back to from/size
+        pagination for this specific combination only."""
+        return (
+            self.is_hybrid
+            and self.sort == SortType.SCORE
+            and self.sort_direction == SortDirectionType.DESC
+        )
+
+    @property
+    def offset(self) -> int:
+        if self.search_after is None:
+            return 0
+
+        return int(self.search_after[0])
+
     def __post_init__(self) -> None:
         if not self.methods:
             raise ValueError("At least one retrieval method is required")
@@ -208,8 +229,8 @@ class MessagesData:
     author_name: str | None = None
     author_username: str | None = None
 
-    conversation_name: str | None = None
-    conversation_type: ChannelType | None = None
+    channel_name: str | None = None
+    channel_type: ChannelType | None = None
 
     created_at: datetime | None = None
     updated_at: datetime | None = None

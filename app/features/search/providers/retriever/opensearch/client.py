@@ -6,6 +6,9 @@ from opensearchpy import AsyncOpenSearch
 from opensearchpy.exceptions import RequestError
 
 from app.features.search.providers.interfaces import ClientProvider
+from app.features.search.providers.retriever.opensearch.indexes.backfill_checkpoint import (
+    BackfillCheckpointIndex,
+)
 from app.features.search.providers.retriever.opensearch.indexes.base import (
     OpenSearchIndexDefinition,
 )
@@ -94,6 +97,7 @@ class OpenSearchClientProvider(ClientProvider):
 
         indexes: Iterable[OpenSearchIndexDefinition] = [
             MessagesIndex(),
+            BackfillCheckpointIndex(),
         ]
 
         for index_definition in indexes:

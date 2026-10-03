@@ -49,19 +49,11 @@ SELECT
     m.archiveid,
     m.messagetime,
     m.editedon,
-    m.pinstatus,
     m.isdeleted,
-    s.teamstreamtype,
-    s.streamname AS channel_name,
-    p.username,
-    p.firstname,
-    p.lastname
+    s.teamstreamtype
 FROM streams.streammessages m
 INNER JOIN streams.streams s
     ON s.id = m.sid
-LEFT JOIN streams.streammemberspersonalinfo p
-    ON p.im_archiveid = m.archiveid
-    AND p.siteid = m.siteid
 WHERE
     m.siteid = :site_id
     AND m.sid IN ({sid_placeholders})
@@ -81,19 +73,11 @@ SELECT
     m.archiveid,
     m.messagetime,
     m.editedon,
-    m.pinstatus,
     m.isdeleted,
-    s.teamstreamtype,
-    s.streamname AS channel_name,
-    p.username,
-    p.firstname,
-    p.lastname
+    s.teamstreamtype
 FROM streams.streammessages m
 INNER JOIN streams.streams s
     ON s.id = m.sid
-LEFT JOIN streams.streammemberspersonalinfo p
-    ON p.im_archiveid = m.archiveid
-    AND p.siteid = m.siteid
 WHERE
     m.msgtype IN (0, 20)
     AND m.isdeleted = 0

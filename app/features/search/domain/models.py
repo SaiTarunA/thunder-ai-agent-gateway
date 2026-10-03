@@ -226,10 +226,7 @@ class MessagesData:
     text: str
 
     author_archive_id: int
-    author_name: str | None = None
-    author_username: str | None = None
 
-    channel_name: str | None = None
     channel_type: ChannelType | None = None
 
     created_at: datetime | None = None
@@ -240,7 +237,6 @@ class MessagesData:
 
     is_thread_reply: bool = False
     is_edited: bool = False
-    is_pinned: bool = False
 
 
 @dataclass(frozen=True, slots=True)

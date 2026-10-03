@@ -38,14 +38,6 @@ class MessagesIndex(OpenSearchIndexDefinition):
                 "channel_type": {
                     "type": "keyword",
                 },
-                "channel_name": {
-                    "type": "text",
-                    "fields": {
-                        "keyword": {
-                            "type": "keyword",
-                        }
-                    },
-                },
                 "message_type": {
                     "type": "keyword",
                 },
@@ -55,22 +47,6 @@ class MessagesIndex(OpenSearchIndexDefinition):
                 },
                 "author_archive_id": {
                     "type": "long",
-                },
-                "author_username": {
-                    "type": "text",
-                    "fields": {
-                        "keyword": {
-                            "type": "keyword",
-                        }
-                    },
-                },
-                "author_name": {
-                    "type": "text",
-                    "fields": {
-                        "keyword": {
-                            "type": "keyword",
-                        }
-                    },
                 },
                 "created_at": {
                     "type": "date",
@@ -91,9 +67,6 @@ class MessagesIndex(OpenSearchIndexDefinition):
                     "type": "boolean",
                 },
                 "is_edited": {
-                    "type": "boolean",
-                },
-                "is_pinned": {
                     "type": "boolean",
                 },
                 "embedding": {

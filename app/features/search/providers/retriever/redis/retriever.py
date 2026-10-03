@@ -37,9 +37,6 @@ _RETURN_FIELDS = (
     "sid",
     "text",
     "author_archive_id",
-    "author_name",
-    "author_username",
-    "channel_name",
     "channel_type",
     "created_at",
     "updated_at",
@@ -47,7 +44,6 @@ _RETURN_FIELDS = (
     "parent_message_id",
     "is_thread_reply",
     "is_edited",
-    "is_pinned",
 )
 
 _COMBINED_SCORE_ALIAS = "combined_score"

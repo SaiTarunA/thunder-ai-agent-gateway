@@ -63,9 +63,6 @@ class RedisHybridSpec:
 
 _TEXT_SEARCH_FIELDS: tuple[tuple[str, float], ...] = (
     ("text", 5.0),
-    ("channel_name", 2.0),
-    ("author_name", 1.5),
-    ("author_username", 1.0),
 )
 
 

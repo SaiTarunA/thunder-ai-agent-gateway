@@ -15,9 +15,6 @@ class MessageSearchResult(BaseModel):
     sid: int
     text: str
     author_archive_id: int
-    author_name: Optional[str] = None
-    author_username: Optional[str] = None
-    channel_name: Optional[str] = None
     channel_type: Optional[ChannelType] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -25,7 +22,6 @@ class MessageSearchResult(BaseModel):
     parent_message_id: Optional[int] = None
     is_thread_reply: bool = False
     is_edited: bool = False
-    is_pinned: bool = False
 
 
 class SearchCandidateResponse(BaseModel):

@@ -72,30 +72,20 @@ def map_message_row(row: dict[str, Any]) -> SearchMessage:
         if teamstreamtype is not None
         else None
     )
-    first_name = (row.get("firstname") or "").strip()
-    last_name = (row.get("lastname") or "").strip()
-
-    author_name = " ".join(
-        part for part in (first_name, last_name) if part
-    ) or None
 
     return SearchMessage(
         site_id=int(row["siteid"]),
         sid=int(row["sid"]),
         channel_type=channel_type,
-        channel_name=row.get("channel_name"),
         message_id=message_id,
         parent_message_id=parent_message_id,
         thread_root_id=thread_root_id,
         text=row.get("message") or "",
         message_type=str(msgtype),
         author_archive_id=int(row["archiveid"]),
-        author_username=row.get("username") or "",
-        author_name=author_name,
         created_at=created_at,
         updated_at=updated_at,
         is_thread_reply=is_thread_reply,
         is_deleted=bool(row["isdeleted"]),
         is_edited=is_edited,
-        is_pinned=bool(row.get("pinstatus", 0)),
     )

@@ -67,12 +67,7 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
                     {
                         "multi_match": {
                             "query": request.query,
-                            "fields": [
-                                "text^5",
-                                "channel_name^2",
-                                "author_name^1.5",
-                                "author_username",
-                            ],
+                            "fields": ["text"],
                             "type": "best_fields",
                         }
                     }
@@ -131,12 +126,7 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
                     {
                         "multi_match": {
                             "query": request.query,
-                            "fields": [
-                                "text^5",
-                                "channel_name^2",
-                                "author_name^1.5",
-                                "author_username",
-                            ],
+                            "fields": ["text"],
                             "type": "best_fields",
                         }
                     },

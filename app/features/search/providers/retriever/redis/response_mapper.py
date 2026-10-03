@@ -171,9 +171,6 @@ class RedisResponseMapper(ResponseMapper):
             sid=int(self._field(doc, "sid")),
             text=self._field(doc, "text", "") or "",
             author_archive_id=int(self._field(doc, "author_archive_id")),
-            author_name=self._field(doc, "author_name") or None,
-            author_username=self._field(doc, "author_username") or None,
-            channel_name=self._field(doc, "channel_name") or None,
             channel_type=(
                 ChannelType(self._field(doc, "channel_type"))
                 if self._field(doc, "channel_type")
@@ -201,7 +198,6 @@ class RedisResponseMapper(ResponseMapper):
             ),
             is_thread_reply=self._field(doc, "is_thread_reply") == "true",
             is_edited=self._field(doc, "is_edited") == "true",
-            is_pinned=self._field(doc, "is_pinned") == "true",
         )
 
     @staticmethod

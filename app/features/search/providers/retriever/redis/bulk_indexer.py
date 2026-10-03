@@ -62,13 +62,10 @@ class RedisBulkIndexer(BulkWriter):
             "site_id": str(message.site_id),
             "sid": str(message.sid),
             "channel_type": message.channel_type or "",
-            "channel_name": message.channel_name or "",
             "message_id": message.message_id,
             "message_type": message.message_type,
             "text": message.text,
             "author_archive_id": str(message.author_archive_id),
-            "author_username": message.author_username or "",
-            "author_name": message.author_name or "",
             "created_at": message.created_at.timestamp(),
             "updated_at": message.updated_at.timestamp(),
             "thread_root_id": str(message.thread_root_id),
@@ -80,7 +77,6 @@ class RedisBulkIndexer(BulkWriter):
             "is_thread_reply": "true" if message.is_thread_reply else "false",
             "is_deleted": "true" if message.is_deleted else "false",
             "is_edited": "true" if message.is_edited else "false",
-            "is_pinned": "true" if message.is_pinned else "false",
             "embedding_version": message.embedding_version or "",
         }
 

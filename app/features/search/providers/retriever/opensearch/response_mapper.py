@@ -83,9 +83,6 @@ class OpenSearchResponseMapper(ResponseMapper):
             sid=int(source["sid"]),
             text=source.get("text", ""),
             author_archive_id=int(source["author_archive_id"]),
-            author_name=source.get("author_name"),
-            author_username=source.get("author_username"),
-            channel_name=source.get("channel_name"),
             channel_type=(
                 ChannelType(source["channel_type"])
                 if source.get("channel_type")
@@ -113,7 +110,6 @@ class OpenSearchResponseMapper(ResponseMapper):
             ),
             is_thread_reply=source.get("is_thread_reply", False),
             is_edited=source.get("is_edited", False),
-            is_pinned=source.get("is_pinned", False),
         )
 
     @staticmethod

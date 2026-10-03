@@ -18,7 +18,6 @@ class SearchMessage:
     # Conversation
     sid: int
     channel_type: str
-    channel_name: Optional[str]
 
     # Message identity
     message_id: int
@@ -31,8 +30,6 @@ class SearchMessage:
 
     # Author
     author_archive_id: int
-    author_username: str
-    author_name: Optional[str]
 
     # Timestamps
     created_at: datetime
@@ -42,7 +39,6 @@ class SearchMessage:
     is_thread_reply: bool
     is_deleted: bool
     is_edited: bool
-    is_pinned: bool
 
     # Semantic search
     embedding: Optional[list[float]] = None

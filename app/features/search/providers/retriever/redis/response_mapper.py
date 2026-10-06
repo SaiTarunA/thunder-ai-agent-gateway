@@ -97,6 +97,7 @@ class RedisResponseMapper(ResponseMapper):
             status=RetrievalStatus.SUCCESS,
             candidates=candidates,
             latency_ms=latency_ms,
+            total=result.total,
         )
 
     def _map_hybrid(

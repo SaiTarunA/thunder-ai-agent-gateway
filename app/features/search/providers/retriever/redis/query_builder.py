@@ -65,6 +65,29 @@ _TEXT_SEARCH_FIELDS: tuple[tuple[str, float], ...] = (
     ("text", 5.0),
 )
 
+# Relative to each field's base weight above: exact phrase ranks highest,
+# then any-term match, then prefix (still-typing), then fuzzy (typo).
+_PHRASE_WEIGHT_MULTIPLIER = 2.0
+_PREFIX_WEIGHT_MULTIPLIER = 0.6
+_FUZZY_WEIGHT_MULTIPLIER = 0.2
+
+# No fuzzy below 3 chars (too many unrelated short-word collisions);
+# distance-1 for 3-5 chars, distance-2 for 6+.
+_FUZZY_MIN_LEN = 3
+_FUZZY_DOUBLE_LEN = 6
+
+
+def _fuzzy_token(token: str) -> str | None:
+    length = len(token)
+
+    if length < _FUZZY_MIN_LEN:
+        return None
+
+    if length < _FUZZY_DOUBLE_LEN:
+        return f"%{token}%"
+
+    return f"%%{token}%%"
+
 
 class RedisQueryBuilder(SearchQueryBuilder):
 
@@ -196,27 +219,63 @@ class RedisQueryBuilder(SearchQueryBuilder):
 
     @staticmethod
     def _build_text_clause(query: str) -> str:
+        # Every token is escaped before it ever reaches the query string -
+        # RediSearch's query parser treats characters like ) | * % @ " as
+        # syntax, not literal text, and filter_expr (carrying the tenant/
+        # authorization scoping) lives in the same raw query string. An
+        # unescaped ")" in a user's own search text could otherwise alter
+        # the query's structure around that filter.
+        raw_tokens = query.strip().split()
+
+        if not raw_tokens:
+            return ""
+
+        tokens = [_escape_tag(token) for token in raw_tokens]
+
         # RediSearch treats space-separated terms inside a field clause as
         # an implicit AND ("match every term"), unlike OpenSearch's
         # multi_match/best_fields which matches on ANY term and lets BM25
         # scoring reward documents that match more of them. OR-ing the
         # terms with "|" reproduces that "match any term" behavior instead
-        # of requiring the full query text verbatim.
-        tokens = [
-            token.replace('"', '\\"')
-            for token in query.strip().split()
-            if token
-        ]
+        # of requiring the full query text verbatim - this is the baseline
+        # "any term" tier below; phrase/prefix/fuzzy tiers are additional,
+        # more and less precise alternatives OR'd alongside it.
+        any_term = "|".join(tokens)
 
-        if not tokens:
-            return ""
+        phrase_term = " ".join(tokens)
 
-        term_expr = "|".join(tokens)
+        # Prefix only the last token ("still typing" the final word) -
+        # prefixing every token would widen the match far more aggressively
+        # than intended for a simple truncated-word case.
+        prefix_tokens = list(tokens)
+        prefix_tokens[-1] = f"{prefix_tokens[-1]}*"
+        prefix_term = "|".join(prefix_tokens)
 
-        clauses = [
-            f"(@{field}:({term_expr}))=>{{$weight: {weight}}}"
-            for field, weight in _TEXT_SEARCH_FIELDS
-        ]
+        # Fuzzy is gated per-token by length (any position, unlike prefix -
+        # a typo can land anywhere, not just the word being typed right now).
+        fuzzy_tokens = [_fuzzy_token(token) or token for token in tokens]
+        has_fuzzy = fuzzy_tokens != tokens
+        fuzzy_term = "|".join(fuzzy_tokens)
+
+        clauses = []
+
+        for field, weight in _TEXT_SEARCH_FIELDS:
+            clauses.append(
+                f'(@{field}:"{phrase_term}")=>'
+                f"{{$weight: {weight * _PHRASE_WEIGHT_MULTIPLIER}}}"
+            )
+            clauses.append(
+                f"(@{field}:({any_term}))=>{{$weight: {weight}}}"
+            )
+            clauses.append(
+                f"(@{field}:({prefix_term}))=>"
+                f"{{$weight: {weight * _PREFIX_WEIGHT_MULTIPLIER}}}"
+            )
+            if has_fuzzy:
+                clauses.append(
+                    f"(@{field}:({fuzzy_term}))=>"
+                    f"{{$weight: {weight * _FUZZY_WEIGHT_MULTIPLIER}}}"
+                )
 
         return " | ".join(clauses)
 

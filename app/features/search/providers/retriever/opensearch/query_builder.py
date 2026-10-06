@@ -43,6 +43,7 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
             "size": request.limit,
             "query": query,
             "sort": self._build_sort(request),
+            "track_total_hits": True,
         }
 
         if request.use_offset_pagination:
@@ -64,17 +65,60 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
         return {
             "bool": {
                 "must": [
-                    {
-                        "multi_match": {
-                            "query": request.query,
-                            "fields": ["text"],
-                            "type": "best_fields",
-                        }
-                    }
+                    self._build_text_query(request.query),
                 ],
                 "filter": self._build_filters(
                     request.filters,
                 ),
+            }
+        }
+
+    @staticmethod
+    def _build_text_query(query: str) -> dict[str, Any]:
+        # Tiered should-clauses, highest-precision first: exact phrase,
+        # then any-term best_fields (the prior baseline behavior), then
+        # phrase_prefix (handles a still-being-typed final word), then a
+        # fuzzy best_fields pass (handles a typo anywhere in the query).
+        # Mirrors the Redis query builder's tiering - see there for the
+        # same four tiers and why each exists.
+        return {
+            "bool": {
+                "should": [
+                    {
+                        "match_phrase": {
+                            "text": {
+                                "query": query,
+                                "boost": 10.0,
+                            }
+                        }
+                    },
+                    {
+                        "multi_match": {
+                            "query": query,
+                            "fields": ["text"],
+                            "type": "best_fields",
+                            "boost": 5.0,
+                        }
+                    },
+                    {
+                        "match_phrase_prefix": {
+                            "text": {
+                                "query": query,
+                                "boost": 3.0,
+                            }
+                        }
+                    },
+                    {
+                        "multi_match": {
+                            "query": query,
+                            "fields": ["text"],
+                            "type": "best_fields",
+                            "fuzziness": "AUTO",
+                            "boost": 1.0,
+                        }
+                    },
+                ],
+                "minimum_should_match": 1,
             }
         }
 
@@ -123,13 +167,7 @@ class OpenSearchQueryBuilder(SearchQueryBuilder):
         return {
             "hybrid": {
                 "queries": [
-                    {
-                        "multi_match": {
-                            "query": request.query,
-                            "fields": ["text"],
-                            "type": "best_fields",
-                        }
-                    },
+                    self._build_text_query(request.query),
                     {
                         "knn": {
                             "embedding": {

@@ -278,6 +278,7 @@ class SearchService:
             status=retrieval_result.status,
             error=retrieval_result.error,
             candidates=candidates,
+            total=retrieval_result.total,
         )
 
     def _get_next_search_after(

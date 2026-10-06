@@ -26,7 +26,8 @@ class OpenSearchResponseMapper(ResponseMapper):
     ) -> RetrievalResult:
         candidates = []
 
-        hits = response.get("hits", {}).get("hits", [])
+        hits_section = response.get("hits", {})
+        hits = hits_section.get("hits", [])
 
         for rank, hit in enumerate(hits, start=1):
             candidates.append(
@@ -36,11 +37,14 @@ class OpenSearchResponseMapper(ResponseMapper):
                 )
             )
 
+        total = hits_section.get("total", {}).get("value")
+
         return RetrievalResult(
             methods=methods,
             status=RetrievalStatus.SUCCESS,
             candidates=candidates,
             latency_ms=latency_ms,
+            total=total,
         )
 
     def _map_hit(

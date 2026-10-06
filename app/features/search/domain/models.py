@@ -269,6 +269,7 @@ class RetrievalResult:
     candidates: list[RetrievalCandidate]
     latency_ms: int
     error: str | None = None
+    total: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

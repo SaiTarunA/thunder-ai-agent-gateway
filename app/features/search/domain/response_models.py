@@ -34,6 +34,7 @@ class ContentTypeResultResponse(BaseModel):
     status: RetrievalStatus
     error: Optional[str] = None
     candidates: list[SearchCandidateResponse] = []
+    total: Optional[int] = None
 
 
 class SearchResponseMetadata(BaseModel):

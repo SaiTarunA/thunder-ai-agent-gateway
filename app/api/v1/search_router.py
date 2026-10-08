@@ -4,6 +4,8 @@ import logging
 from app.api.v1.search_indexing_router import search_indexing_router
 from app.features.search.domain.models import SearchContextRequest
 from app.features.search.module import search_module
+from app.features.search_answer.handler import search_answer_handler
+from app.features.search_answer.schemas import SearchAnswerRequest, SearchAnswerResponse
 
 logger = logging.getLogger(__name__)
 
@@ -35,3 +37,12 @@ async def context(request: SearchContextRequest):
             "error": str(e),
             "msg": "Failed",
         }
+
+
+@search_router.post("/answer", response_model=SearchAnswerResponse)
+async def answer(request: SearchAnswerRequest):
+    # No try/except here - the handler already catches its own exceptions
+    # and returns a graceful has_answer=False response rather than ever
+    # raising, since the frontend contract shouldn't have to special-case
+    # an error state for this feature.
+    return await search_answer_handler.handle(request)

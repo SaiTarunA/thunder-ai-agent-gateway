@@ -5,7 +5,13 @@ from datetime import datetime, timezone
 from app.ai import ai_constants
 from app.ai import registry
 from app.ai.ai_constants import SummaryCategory
-from app.ai.prompts import chat_summary, intent_detection, reply_to_thread, upgrade_user_chat
+from app.ai.prompts import (
+    chat_summary,
+    intent_detection,
+    reply_to_thread,
+    search_answer,
+    upgrade_user_chat,
+)
 from app.core.utils import utils
 from app.features.intent_detection.schemas import WEB_SEARCH_TOOL
 
@@ -193,6 +199,43 @@ class AIConfigBuilder:
 
             logger.info(f"general_query_info :: \n{general_query_info}")
             return general_query_info
+
+        except Exception as e:
+            logger.error(f"Error :: {e}")
+            return None
+
+
+    async def prepare_search_answer_classify_config(self):
+        try:
+            cfg = search_answer.SEARCH_ANSWER_CLASSIFY_CONSTANTS
+
+            classify_info = {
+                **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4O_MINI),
+                "tool_choice": cfg.get("tool_choice"),
+                "parallel_tool_calls": cfg.get("parallel_tool_calls"),
+                "operation_type": ai_constants.OPERATION_SEARCH_ANSWER_CLASSIFY,
+            }
+
+            logger.info(f"search_answer_classify_info :: \n{classify_info}")
+            return classify_info
+
+        except Exception as e:
+            logger.error(f"Error :: {e}")
+            return None
+
+    async def prepare_search_answer_synthesize_config(self):
+        try:
+            cfg = search_answer.SEARCH_ANSWER_SYNTHESIZE_CONSTANTS
+
+            synthesize_info = {
+                **self._prepare_default_settings({}, cfg, registry.MODEL_GPT_4O_MINI),
+                "tool_choice": cfg.get("tool_choice"),
+                "parallel_tool_calls": cfg.get("parallel_tool_calls"),
+                "operation_type": ai_constants.OPERATION_SEARCH_ANSWER_SYNTHESIZE,
+            }
+
+            logger.info(f"search_answer_synthesize_info :: \n{synthesize_info}")
+            return synthesize_info
 
         except Exception as e:
             logger.error(f"Error :: {e}")

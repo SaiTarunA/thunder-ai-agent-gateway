@@ -24,7 +24,8 @@ T = TypeVar("T", bound=BaseModel)
 def _strip_titles(schema: dict) -> None:
     """Pydantic adds a "title" to the schema and to every property; OpenAI's tool
     schema doesn't need it and it's just noise, so drop it recursively (including
-    inside $defs, which Pydantic emits for nested/```Literal``` types)."""
+    inside $defs, which Pydantic emits for nested/```Literal``` types, and inside
+    `items`, which Pydantic emits for list-of-model fields)."""
     if not isinstance(schema, dict):
         return
     schema.pop("title", None)
@@ -32,6 +33,36 @@ def _strip_titles(schema: dict) -> None:
         _strip_titles(value)
     for value in schema.get("$defs", {}).values():
         _strip_titles(value)
+    items = schema.get("items")
+    if isinstance(items, dict):
+        _strip_titles(items)
+
+
+def _apply_strict_object_rules(schema: dict) -> None:
+    """OpenAI's strict function-calling mode requires `additionalProperties:
+    false` and every property listed in `required` on EVERY object schema in
+    the structure, not just the root - Pydantic nests a referenced model's own
+    schema under `$defs` (for a nested BaseModel field) and under `items` (for
+    a list-of-BaseModel field), so this has to recurse into both, not just
+    into `properties`. A model whose only nested field is itself flat (no
+    further nesting) never exercised this path, which is why it went unnoticed
+    until the first tool schema with a list-of-model field."""
+    if not isinstance(schema, dict):
+        return
+
+    if schema.get("type") == "object":
+        schema["additionalProperties"] = False
+        schema["required"] = list(schema.get("properties", {}).keys())
+
+    for value in schema.get("properties", {}).values():
+        _apply_strict_object_rules(value)
+
+    items = schema.get("items")
+    if isinstance(items, dict):
+        _apply_strict_object_rules(items)
+
+    for value in schema.get("$defs", {}).values():
+        _apply_strict_object_rules(value)
 
 
 def pydantic_model_to_openai_tool(
@@ -46,14 +77,16 @@ def pydantic_model_to_openai_tool(
     In `strict` mode (the default, matching this codebase's existing tool defs),
     OpenAI requires every property to be listed in `required` (optionality is
     expressed through nullable types, not omission) and `additionalProperties: false`
-    at every object level. Pydantic's own `required` list only includes fields
-    without a default, so it's overridden here to include every property.
+    at every object level, including nested models. Pydantic's own `required` list
+    only includes fields without a default, so it's overridden here to include
+    every property, at every level.
     """
     schema = model.model_json_schema()
     schema.setdefault("type", "object")
     schema["additionalProperties"] = False
     if strict:
         schema["required"] = list(schema.get("properties", {}).keys())
+        _apply_strict_object_rules(schema)
     _strip_titles(schema)
 
     return {

@@ -16,6 +16,14 @@ FUNCTION_DOCUMENT_INTELLIGENCE = "document_intellegence"
 FUNCTION_INTENT_SEARCH = "intent_search"
 FUNCTION_OUT_OF_SCOPE = "out_of_scope"
 
+# Function/tool names for the Global Search "AI answer" feature's two internal
+# model calls. Argument schemas live in
+# `app.features.search_answer.schemas.CLASSIFY_TOOL_SCHEMAS` / `ANSWER_TOOL_SCHEMAS`.
+FUNCTION_CONTEXTUAL_QUERY = "contextual_query"
+FUNCTION_NOT_CONTEXTUAL_QUERY = "not_contextual_query"
+FUNCTION_PROVIDE_SEARCH_ANSWER = "provide_search_answer"
+FUNCTION_INSUFFICIENT_SEARCH_CONTEXT = "insufficient_search_context"
+
 # Operation-type tags recorded on each billing row.
 OPERATION_INTENT_DETECTION = "intent_detection"
 OPERATION_CHAT_SUMMARY = "chat_summary"
@@ -23,6 +31,8 @@ OPERATION_UPGRADE_USER_CHAT = "upgrade_user_chat"
 OPERATION_PROCESS_THREAD = "process_thread"
 OPERATION_GENERAL_QUERY = "general_query"
 OPERATION_INTENT_SEARCH = "intent_search"
+OPERATION_SEARCH_ANSWER_CLASSIFY = "search_answer_classify"
+OPERATION_SEARCH_ANSWER_SYNTHESIZE = "search_answer_synthesize"
 
 
 class SummaryCategory(StrEnum):

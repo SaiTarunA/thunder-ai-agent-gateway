@@ -14,7 +14,7 @@ class SearchConfig:
     hybrid_search_pipeline: str = "streams-hybrid-pipeline"
 
     # Which retriever backend to wire up: "redis" or "opensearch".
-    retriever_backend: str = os.environ.get("RETRIEVER_BACKEND", "redis")
+    retriever_backend: str = os.environ.get("RETRIEVER_BACKEND", "opensearch")
 
     # RRF constant used to fuse lexical + semantic result sets
     hybrid_rrf_k: int = 60

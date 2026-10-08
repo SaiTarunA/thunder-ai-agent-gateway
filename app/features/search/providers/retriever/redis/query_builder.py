@@ -17,8 +17,12 @@ from app.features.search.providers.interfaces import SearchQueryBuilder
 
 logger = logging.getLogger(__name__)
 
-# Characters RediSearch requires escaping with a backslash inside TAG values.
-_TAG_ESCAPE_CHARS = set(",.<>{}[]\"':;!@#$%^&*()-+=~| \t\n")
+# Characters RediSearch treats as query syntax (TAG values, and reused for
+# escaping literal TEXT-query tokens too - see _build_text_clause). "?" is
+# RediSearch's single-character wildcard - a query containing a literal "?"
+# (e.g. "release date?") would otherwise reach the query string as an
+# unescaped wildcard operator and produce a SEARCH_SYNTAX error.
+_TAG_ESCAPE_CHARS = set(",.<>{}[]\"':;!@#$%^&*()-+=~|? \t\n")
 
 
 def _escape_tag(value: Any) -> str:

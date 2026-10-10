@@ -29,7 +29,7 @@ class RedisClientProvider(ClientProvider):
                 cls._parse_sentinel_host(entry)
                 for entry in os.environ.get(
                     "REDIS_SENTINEL_HOSTS",
-                    "localhost:26379",
+                    "192.168.0.107:26379",
                 ).split(",")
                 if entry.strip()
             ]

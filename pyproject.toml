@@ -37,6 +37,7 @@ dependencies = [
     "tiktoken>=0.14.0",
     "tzdata>=2026.3",
     "pyrnnoise>=0.4.5",
+    "livekit-plugins-silero==1.8.4",
 ]
 
 [tool.pytest.ini_options]

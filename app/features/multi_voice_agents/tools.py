@@ -260,6 +260,21 @@ async def send_chat(call_id: str, args: dict, request: ClientRequest) -> ToolOut
     return ToolOutcome(f"Chat message sent to {contact['name']}.")
 
 
+async def list_contact_names(request: ClientRequest, limit: int = 300) -> list[str]:
+    """Names from the caller's contact list, used only as listening context for the voice model."""
+    data = await request("list_contact_names", {"limit": limit})
+    seen: set[str] = set()
+    names: list[str] = []
+    for raw in data.get("names", []):
+        name = " ".join(str(raw).split())[:40]
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
 CLIENT_TOOLS: dict[str, Callable[[str, dict, ClientRequest], Awaitable[ToolOutcome]]] = {
     fn.__name__: fn for fn in (search_contacts, make_call, send_sms, send_chat)
 }

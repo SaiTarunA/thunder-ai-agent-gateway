@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from typing import Any
 
 from livekit.agents import AgentServer, AgentSession, JobContext, cli, room_io
 
@@ -23,6 +24,50 @@ server = AgentServer(
     api_secret=settings.livekit_api_secret.get_secret_value(),
 )
 store = CallStore()
+_vad: Any = None
+
+
+def _build_session() -> AgentSession:
+    """AgentSession with LiveKit-managed turn-taking (free, local Silero VAD) when configured.
+
+    OpenAI's server VAD reacts to any speech-like sound and interrupts at once. Here the model's
+    own detection is off (see call._turn_detection); Silero decides when you speak, and the agent
+    only stops talking after `interrupt_min_duration_ms` of continuous speech, resuming if it
+    turns out to be a false trigger. If Silero cannot load, fall back to OpenAI's server VAD.
+    """
+    global _vad
+    if settings.vad_mode != "livekit":
+        return AgentSession()
+    try:
+        if _vad is None:
+            from livekit.plugins import silero
+
+            _vad = silero.VAD.load(
+                activation_threshold=settings.vad_activation_threshold,
+                min_speech_duration=settings.vad_min_speech_ms / 1000,
+                min_silence_duration=0.4,
+                prefix_padding_duration=settings.vad_prefix_padding_ms / 1000,
+            )
+    except Exception:
+        log.exception("Silero VAD unavailable, falling back to OpenAI server VAD")
+        settings.vad_mode = "server"
+        return AgentSession()
+    return AgentSession(
+        vad=_vad,
+        turn_handling={
+            "turn_detection": "vad",
+            "endpointing": {"min_delay": settings.vad_silence_ms / 1000, "max_delay": 3.0},
+            "interruption": {
+                "enabled": True,
+                "mode": "vad",
+                "min_duration": settings.interrupt_min_duration_ms / 1000,
+                "resume_false_interruption": True,
+                "false_interruption_timeout": settings.interrupt_false_timeout_s,
+                "discard_audio_if_uninterruptible": True,
+            },
+            "preemptive_generation": {"enabled": False},
+        },
+    )
 
 
 @server.rtc_session(agent_name=settings.worker_agent_name)
@@ -49,7 +94,7 @@ async def entrypoint(job: JobContext) -> None:
         else first_opening(spec)
     )
     agent = SpecialistAgent(call, spec, state.get("briefing", ""), opening)
-    session = AgentSession()
+    session = _build_session()
     done = asyncio.Event()
 
     @session.on("user_input_transcribed")
@@ -96,6 +141,7 @@ async def entrypoint(job: JobContext) -> None:
             audio_input=room_io.AudioInputOptions(noise_cancellation=noise_filter)
         ),
     )
+    call.spawn(call.load_contact_names())  # listening hint; the call does not wait for it
     await done.wait()
 
 

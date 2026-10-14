@@ -34,6 +34,7 @@ from app.features.multi_voice_agents.tools import (
     CLIENT_TIMEOUT,
     CLIENT_TOOLS,
     ClientError,
+    list_contact_names,
     run_client_tool,
 )
 
@@ -54,6 +55,8 @@ class CallContext:
         self.seam_t0: float | None = None
         self._bg: set[asyncio.Task] = set()
         self._pending: dict[str, asyncio.Future] = {}
+        self.contact_names: list[str] = []  # the caller's contact names, a listening hint for the model
+        self.agent: SpecialistAgent | None = None  # whichever agent currently has the call
         self.close_session: Callable[[], Awaitable[None]] | None = None
 
     async def publish(self, payload: dict[str, Any]) -> None:
@@ -103,6 +106,16 @@ class CallContext:
         if self.close_session:
             with contextlib.suppress(Exception):
                 await self.close_session()
+
+    async def load_contact_names(self) -> None:
+        """Fetch the caller's contact names once and hand them to the agent that has the call."""
+        try:
+            self.contact_names = await list_contact_names(self.client_request)
+        except ClientError as e:
+            log.warning("contact names unavailable: %s", e)
+            return
+        if self.contact_names and self.agent:
+            await self.agent.refresh_instructions()
 
     def spawn(self, coro: Any) -> None:
         t = asyncio.create_task(coro)
@@ -223,6 +236,8 @@ class CallContext:
 def _turn_detection(s: Settings, spec: AgentSpec) -> Any:
     """Server VAD ignores quiet/short sounds (loudness threshold); semantic VAD has no such knob."""
     td = openai.realtime.realtime_model.TurnDetection
+    if s.vad_mode == "livekit":
+        return None  # LiveKit's own VAD decides turns and interruptions (see worker._build_session)
     if s.vad_mode == "semantic":
         return td(
             type="semantic_vad",
@@ -278,11 +293,11 @@ class SpecialistAgent(Agent):
         llm.session = _hooked_session
 
         super().__init__(
-            instructions=instructions_for(spec, briefing),
+            instructions=instructions_for(spec, briefing, call.contact_names),
             llm=llm,
             tools=[self._tool(schema) for schema in tool_schemas(spec)],
         )
-        self.call, self.spec, self.opening = call, spec, opening
+        self.call, self.spec, self.opening, self.briefing = call, spec, opening, briefing
 
     def _tool(self, schema: dict) -> Any:
         name = schema["name"]
@@ -293,7 +308,13 @@ class SpecialistAgent(Agent):
         raw = {k: schema[k] for k in ("name", "description", "parameters")}
         return function_tool(handler, raw_schema=raw)
 
+    async def refresh_instructions(self) -> None:
+        await self.update_instructions(
+            instructions_for(self.spec, self.briefing, self.call.contact_names)
+        )
+
     async def on_enter(self) -> None:
+        self.call.agent = self
         agent_data = serialize_agent(self.spec, self.call.settings)
         next_candidates = [
             serialize_agent(AGENTS[t], self.call.settings)

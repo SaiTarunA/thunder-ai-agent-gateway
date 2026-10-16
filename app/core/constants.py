@@ -1,7 +1,16 @@
 # ==================  URL path  ===================
 
 HEART_BEAT_PATH = "/heart_beat"
-PUBLIC_PATHS = {"/docs", "/redoc", "/openapi.json", "/api/v1/auth/generate_tokens", "/ai_auth/generate_tokens"}
+PUBLIC_PATHS = {
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/api/v1/auth/generate_tokens",
+    "/ai_auth/generate_tokens",
+    # Google's redirect after Drive sign-in carries no JWT; the single-use
+    # OAuth state identifies the user instead.
+    "/api/v1/gdrive/oauth/callback",
+}
 
 # ================== Gatekeeper constants ===================
 

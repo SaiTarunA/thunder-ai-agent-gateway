@@ -54,6 +54,11 @@ def pydantic_model_to_openai_tool(
     schema["additionalProperties"] = False
     if strict:
         schema["required"] = list(schema.get("properties", {}).keys())
+        # Nested models arrive as $defs and are held to the same rules.
+        for definition in schema.get("$defs", {}).values():
+            if "properties" in definition:
+                definition["additionalProperties"] = False
+                definition["required"] = list(definition["properties"].keys())
     _strip_titles(schema)
 
     return {

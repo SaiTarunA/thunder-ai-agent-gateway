@@ -50,6 +50,7 @@ thunder-ai-agent-gateway/
 │   │   ├── prompts/                    # Versioned, domain-specific system prompts & constants
 │   │   │   ├── intent_detection.py     # Prompt rules for intent classification & Luna tool choices
 │   │   │   ├── chat_summary.py         # Summary generation & chunking prompts
+│   │   │   ├── gdrive_search.py        # Google Drive search stages + the drive_search routing rules
 │   │   │   ├── reply_to_thread.py      # Thread-reply context prompts
 │   │   │   └── upgrade_user_chat.py    # Draft formatting & message refinement prompts
 │   │   ├── providers/                  # Vendor adapter implementations
@@ -66,6 +67,7 @@ thunder-ai-agent-gateway/
 │   ├── api/                            # HTTP Transport Layer
 │   │   └── v1/
 │   │       ├── auth_router.py          # Session auth & token generation/refresh endpoints
+│   │       ├── gdrive_router.py        # Google Drive connection & search endpoints
 │   │       └── luna_router.py          # Luna AI chat & intent routing entrypoint
 │   ├── billing/                        # Usage Metering & Billing
 │   │   ├── repository.py               # Database persistence for billing logs
@@ -97,9 +99,11 @@ thunder-ai-agent-gateway/
 │   ├── features/                       # Business Domain Capabilities
 │   │   ├── auth/                       # Token payload schemas & response contracts
 │   │   ├── chat_summary/               # Summarization workflow, chunking logic, and NLP schemas
+│   │   ├── gdrive_search/              # Query-time Google Drive search (see 6.4)
 │   │   ├── general_chat/               # Standalone chat, message rewriting, and thread replying
 │   │   └── intent_detection/           # Intent handler, dispatch logic, and tool schemas
 │   ├── integrations/                   # External Services & Protocols
+│   │   ├── google_drive/               # Async Google Drive v3 + Google OAuth clients
 │   │   ├── mcp/                        # Model Context Protocol (MCP) clients & adapters
 │   │   └── search/                     # Web search integration client
 │   ├── middleware/                     # Global ASGI Middlewares
@@ -242,6 +246,21 @@ thunder-ai-agent-gateway/
        return await self.db_connector.execute(db_config.DB_STREAMS, query, params)
    ```
 
+### 6.4. Google Drive Search
+
+Answers questions about the files in a user's Drive at query time from Drive's own index, with no index built ahead of time: understand the question (one model call), run several Drive searches at once, rank locally on names and folder paths, read the best ~20 files and rerank them on what they say (one model call), decide how sure it is (`confident` / `uncertain` / `lost` / `none`), then answer the question from the files kept (one model call), citing each fact as `[n]`, the n-th of the returned `documents`. The thresholds were tuned together on a 290-question evaluation, which also scores answers against the facts they must contain.
+
+- **Answers.** Every result carries a reply in `answer`: a search's question answered from its documents, each fact cited as `[n]` (`citations`); a listing ("my starred files", "my biggest files") answered from the list, with how many match in all; one named or picked file (`chosen_file_id`) answered from its contents; several possible files (`lost`, with `alternatives`) or nothing found (`none`) get a fixed question back. The answer reads the text the reranker just cached, a long file cut to its passage richest in the question's words (a spreadsheet's keeping its header row). A scan or photo with no text (PDF, JPEG, PNG, WebP, GIF, BMP, TIFF) is sent to the model as the file itself, downloaded while the reranker's model call runs, never stored, a photo downscaled and a scan cut to its first pages; one the model refuses is left out rather than costing the answer. A failed answer call still returns the documents, with `answer` empty.
+- **Google's slow replies.** About 1.5% of Drive calls wait 3-30s for Google at random. A call with no reply after `drive_hedge_after_seconds` (2s) is sent once more and the first answer used; downloads have connection slots of their own, so searches never queue behind them.
+
+- **Luna.** Every routing call includes the `drive_search` tool and a "GOOGLE DRIVE" section in the routing prompt, with `google_drive_connected` in the context. An explicit Drive request routes to Drive; a file request naming no place asks "Drive or chats?" when a Drive is connected and goes to chat search otherwise. Response types: `drive_search`, `drive_connect_required`, `drive_auth_required`, `drive_source_choice`. Follow-ups: `reqtype="drive_search"` with `params` `{query, chosen_file_id | typed_filename}` searches without routing; `exclude_drive: true` routes without Drive.
+- **Whose Drive.** Always the authenticated user (JWT `sub`, qualified by a `siteid` claim when present), never a request-body field. `JWTAuthMiddleware` puts the verified claims on `request.state.auth_claims`.
+- **Connecting a Drive.** The gateway's own Google sign-in and token exchange: `POST /gdrive/connect` returns the Google sign-in URL, `GET /gdrive/oauth/callback` exchanges the code and stores the refresh token Fernet-encrypted in the cache Redis, `GET /gdrive/status` and `DELETE /gdrive/connection` report and disconnect. The callback then sends the browser to `frontend_redirect_url` with `?connected=1` (or `?error=<code>&message=<text>`). Needs `oauth_client_id` in the config, `GDRIVE_OAUTH_CLIENT_SECRET` / `GDRIVE_TOKEN_ENCRYPTION_KEYS` in `.env`, and `oauth_redirect_uri` registered on the Google OAuth client.
+- **State.** The local Redis (`CACHE_REDIS_*` in `.env`, db 1) holds Drive connections, the Drive listing cache and parsed file text (1 h). It is separate from the search module's Sentinel Redis.
+- **Models and billing.** Every call goes through `model_router` on `gpt-6-luna` (reasoning effort `none`, structured replies as forced tool calls checked like intent detection's, `store=False`, OpenAI's standard tier unless `model_service_tier` says otherwise), all billed under the `drive_search` operation type. A reply that cannot be read is asked for again once (`model_attempts`), then the search fails with the standard error response.
+- **Parsing.** Downloaded files go through document_intelligence as a `DriveFileSource`, with a fast registry (PyMuPDF, `OfficeTextBackend`, plain text) run in a worker thread.
+- **Direct endpoint.** `POST /api/v1/gdrive/search` with `{query, ...}` runs the same search without Luna.
+
 ---
 
 ## 7. Development & Operations Runbook
@@ -268,6 +287,17 @@ GATEKEEPER_AUTH_TOKEN=your-gatekeeper-token
 
 # Database Credentials
 # (See app/core/configs/mysql_config.py for mapped variables)
+
+# Redis (local cache: Google Drive search)
+CACHE_REDIS_HOST=127.0.0.1                # not localhost: on Windows it tries IPv6 first, 2s a connection
+CACHE_REDIS_PORT=6379
+CACHE_REDIS_DB=1
+CACHE_REDIS_PASSWORD=                   # only if the local cache Redis has one
+CACHE_REDIS_SOCKET_TIMEOUT_SECONDS=5
+
+# Google Drive search (other settings are in app/features/gdrive_search/config.py)
+GDRIVE_OAUTH_CLIENT_SECRET=
+GDRIVE_TOKEN_ENCRYPTION_KEYS=           # comma-separated Fernet keys, the first one encrypts
 ```
 
 ### 7.2. Package & Environment Management (using `uv`)

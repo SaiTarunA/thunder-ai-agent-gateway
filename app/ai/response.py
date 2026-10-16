@@ -36,4 +36,7 @@ class AIResponse:
     usage: Optional[Usage] = None
     model: Optional[str] = None
     provider: str = ""
+    # The processing tier the provider reports serving the call on, which
+    # can differ from the one requested.
+    service_tier: Optional[str] = None
     raw: Any = None  # original provider response, for provider-specific debugging only

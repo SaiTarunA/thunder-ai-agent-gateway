@@ -15,6 +15,7 @@ FUNCTION_CLARIFY_USER_QUERY = "clarify_user_query"
 FUNCTION_DOCUMENT_INTELLIGENCE = "document_intellegence"
 FUNCTION_INTENT_SEARCH = "intent_search"
 FUNCTION_OUT_OF_SCOPE = "out_of_scope"
+FUNCTION_DRIVE_SEARCH = "drive_search"
 
 # Operation-type tags recorded on each billing row.
 OPERATION_INTENT_DETECTION = "intent_detection"
@@ -23,6 +24,7 @@ OPERATION_UPGRADE_USER_CHAT = "upgrade_user_chat"
 OPERATION_PROCESS_THREAD = "process_thread"
 OPERATION_GENERAL_QUERY = "general_query"
 OPERATION_INTENT_SEARCH = "intent_search"
+OPERATION_DRIVE_SEARCH = "drive_search"
 
 
 class SummaryCategory(StrEnum):

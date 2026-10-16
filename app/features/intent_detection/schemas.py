@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from app.ai import ai_constants
 from app.features.chat_summary.schemas import SummaryNLPExtractedData
+from app.features.gdrive_search.schemas import DriveSearchArgs, DriveSearchParams
 from app.features.search.domain.models import ContentType, ChannelType, SortType, SortDirectionType, RetrievalMethodType
 from pydantic import model_validator
 
@@ -41,6 +42,9 @@ class LunaRequest(BaseModel):
     conversation_id: Optional[str] = Field(None, description="The conversation ID")
     reqtype: Optional[str] = Field(None, description="Direct function/intent name to bypass intent detection")
     params: Optional[dict[str, Any]] = Field(default_factory=dict, description="Parameters for direct function execution")
+    exclude_drive: Optional[bool] = Field(
+        False, description="Route without Google Drive search, e.g. after the user chose to search chats instead"
+    )
 
 
 class UpgradeUserChatArgs(BaseModel):
@@ -233,4 +237,25 @@ INTENT_TOOL_SCHEMAS: dict[str, tuple[type[BaseModel], str]] = {
         "when a supported request is bundled with an unsupported action. 'message' says it can't be done here and offers "
         "the closest supported alternative. Not for how-to questions about the app.",
     ),
+}
+
+
+# Added to the routing call unless the request excludes Drive (the user
+# chose chats), in which case routing sees only the tools above.
+DRIVE_TOOL_SCHEMAS: dict[str, tuple[type[BaseModel], str]] = {
+    ai_constants.FUNCTION_DRIVE_SEARCH: (
+        DriveSearchArgs,
+        "Find files in the user's own connected Google Drive: which file holds something, or where a file is. "
+        "Only when the user refers to Google Drive, or names no place for the file while a Drive is connected "
+        "(then confirm_source is true and the backend asks whether to search Drive or chats). Never for files or "
+        f"documents shared in chats or channels ({ai_constants.FUNCTION_INTENT_SEARCH}), a document available in "
+        f"context ({ai_constants.FUNCTION_DOCUMENT_INTELLIGENCE}), or changing Drive files "
+        f"({ai_constants.FUNCTION_OUT_OF_SCOPE}).",
+    ),
+}
+
+# What a direct `reqtype` call validates its params against; a picker
+# follow-up adds chosen_file_id or typed_filename to the query.
+DRIVE_DIRECT_SCHEMAS: dict[str, type[BaseModel]] = {
+    ai_constants.FUNCTION_DRIVE_SEARCH: DriveSearchParams,
 }

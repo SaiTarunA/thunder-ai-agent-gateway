@@ -37,6 +37,11 @@ class ModelRouter:
                 previous_response_id=request_data.get("previous_response_id"),
                 conversation_id=request_data.get("conversation_id"),
                 agentid=request_data.get("agentid"),
+                # Optional; a provider sends each one only when it is set.
+                reasoning_effort=request_data.get("reasoning_effort"),
+                store=request_data.get("store"),
+                timeout=request_data.get("timeout"),
+                service_tier=request_data.get("service_tier"),
             )
         except Exception:
             logger.exception(
@@ -46,5 +51,8 @@ class ModelRouter:
 
         await billing_service.record_usage(response, request_data)
         return response
+
+    def warm_up(self) -> None:
+        self._provider.warm_up()
 
 model_router = ModelRouter()

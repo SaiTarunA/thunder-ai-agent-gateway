@@ -81,4 +81,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 content={"detail": "Authentication failed", "code": "auth_failed"},
             )
 
+        # The verified claims, for handlers that key data by the
+        # authenticated user rather than by request-body fields.
+        request.state.auth_claims = payload
+
         return await call_next(request)

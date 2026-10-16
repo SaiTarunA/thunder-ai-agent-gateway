@@ -51,6 +51,22 @@ MODEL_GPT_4O = {
     "output_token_price": 10.00,
 }
 
+# GPT-6 Luna model, used for Google Drive search. Prices per 1M tokens, standard tier.
+MODEL_GPT_6_LUNA = {
+    "model_id": 7,
+    "model_name": "gpt-6-luna",
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "input_token_price": 0.10,
+    "cached_input_token_price": 0.01,
+    "output_token_price": 0.50,
+    # Prices for a call served on another processing tier, by the tier
+    # name the response reports. "fast" was called "priority" until July 2026.
+    "tier_prices": {
+        "fast": {"input_token_price": 0.20, "cached_input_token_price": 0.02, "output_token_price": 1.00},
+    },
+}
+
 # TTS-1 model details.
 MODEL_GPT_TTS_1 = {
     "model_id": 3,

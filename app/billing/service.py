@@ -42,9 +42,13 @@ class BillingService:
 
             model_info = request_data["model_info"]
 
-            input_price = model_info["input_token_price"]
-            output_price = model_info["output_token_price"]
-            cached_input_price = model_info.get("cached_input_token_price", input_price)
+            # The tier the call was served on, which can differ from the one
+            # requested; a tier without its own prices is billed at the standard ones.
+            prices = {**model_info, **model_info.get("tier_prices", {}).get(response.service_tier, {})}
+
+            input_price = prices["input_token_price"]
+            output_price = prices["output_token_price"]
+            cached_input_price = prices.get("cached_input_token_price", input_price)
 
             input_tokens = response.usage.input_tokens
             output_tokens = response.usage.output_tokens
@@ -65,6 +69,7 @@ class BillingService:
                     "input_token_price": input_price,
                     "cached_input_token_price": cached_input_price,
                     "output_token_price": output_price,
+                    "service_tier": response.service_tier,
                     "billing_prompt": billing_prompt,
                     "billing_cached_prompt": billing_cached_prompt,
                     "billing_completion": billing_completion,

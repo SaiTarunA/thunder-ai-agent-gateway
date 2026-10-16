@@ -10,7 +10,7 @@ adapter class, not part of this contract.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from app.ai.response import AIResponse
 
@@ -23,7 +23,8 @@ class AIProvider(ABC):
         *,
         model: str,
         instructions: str,
-        input: str,
+        # Text, or a list of input items for files and images alongside it.
+        input: Union[str, list[dict]],
         max_output_tokens: int,
         temperature: float,
         tools: Optional[list[dict]] = None,
@@ -36,3 +37,7 @@ class AIProvider(ABC):
     ) -> AIResponse:
         """Run one model call and return a normalized AIResponse."""
         raise NotImplementedError
+
+    def warm_up(self) -> None:
+        """Load now what the first call would otherwise load, before the
+        server takes requests. Nothing by default."""

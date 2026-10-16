@@ -13,8 +13,17 @@ from app.ai.tokenizer import validate_token_limits
 from app.ai.tools import parse_tool_call_arguments, pydantic_model_to_openai_tool
 from app.features.chat_summary.chat_summary_handler import chat_summary_handler
 from app.features.chat_summary.thread_process_handler import thread_process_handler
+from app.features.gdrive_search.connection import DriveUser, drive_user_from, token_source
+from app.features.gdrive_search.handler import drive_search_handler
+from app.features.gdrive_search.names import warm_listing
 from app.features.general_chat.handler import general_chat_handler
-from app.features.intent_detection.schemas import INTENT_TOOL_SCHEMAS, WEB_SEARCH_TOOL, LunaRequest
+from app.features.intent_detection.schemas import (
+    DRIVE_DIRECT_SCHEMAS,
+    DRIVE_TOOL_SCHEMAS,
+    INTENT_TOOL_SCHEMAS,
+    WEB_SEARCH_TOOL,
+    LunaRequest,
+)
 from app.core.utils import utils
 from app.features.search.module import search_module
 from app.features.search.domain.models import SearchContextRequest
@@ -25,6 +34,10 @@ class IntentDetectionHandler():
 
     def __init__(self):
         self._tool_definitions: list[dict] = self._build_tool_definitions()
+        self._drive_tool_definitions: list[dict] = [
+            pydantic_model_to_openai_tool(model, name=function_name, description=description)
+            for function_name, (model, description) in DRIVE_TOOL_SCHEMAS.items()
+        ]
 
     def _build_tool_definitions(self) -> list[dict]:
         """Manual, LangChain-free equivalent of `bind_tools()`: derives each intent's
@@ -38,9 +51,25 @@ class IntentDetectionHandler():
         tools.append(WEB_SEARCH_TOOL)
         return tools
 
-    async def detect_intent(self, data: LunaRequest):
+    async def _drive_connected(self, data: LunaRequest, drive_user: Optional[DriveUser]) -> Optional[bool]:
+        """None when the request leaves Google Drive out of routing (the user
+        chose chats); otherwise whether the user has a Drive connected."""
+        if data.exclude_drive:
+            return None
+        if drive_user is None:
+            return False
+        try:
+            return await token_source.is_connected(drive_user)
+        except Exception as e:
+            logger.warning(f"Could not read the Drive connection, routing as not connected :: {e}, agentid :: {data.agentid}")
+            return False
+
+    async def detect_intent(self, data: LunaRequest, auth_claims: Optional[dict] = None):
+        """``auth_claims`` are the verified JWT claims, for features that act
+        as the authenticated user, such as Google Drive search."""
         try:
             request_data = data.model_dump()
+            drive_user = drive_user_from(auth_claims)
 
             logger.info(f"request_data :: {request_data}, agentid :: {data.agentid}")
 
@@ -60,16 +89,38 @@ class IntentDetectionHandler():
                     )
                     function_response_data["request_params"] = request_data
                     return function_response_data
+                elif reqtype in DRIVE_DIRECT_SCHEMAS:
+                    raw_args = data.params if isinstance(data.params, dict) else {}
+                    validated_args = DRIVE_DIRECT_SCHEMAS[reqtype].model_validate(raw_args)
+                    logger.info(
+                        f"Direct invocation bypassing LLM intent detection :: function={reqtype}, args={validated_args}, agentid={data.agentid}"
+                    )
+                    function_response_data = await drive_search_handler.search(drive_user, validated_args, request_data)
+                    function_response_data["request_params"] = request_data
+                    return function_response_data
                 else:
                     logger.warning(
                         f"Unknown direct reqtype '{reqtype}', falling back to intent detection, agentid :: {data.agentid}"
                     )
 
-            intent_config = await ai_config_builder.prepare_intent_detection_config(request_data)
+            drive_connected = await self._drive_connected(data, drive_user)
+            drive_tools = self._drive_tool_definitions if drive_connected is not None else []
+
+            # Routing takes a second or two: a Drive search it chooses then
+            # finds the Drive's listing built, or under way, instead of
+            # starting the build itself. A message that names Drive is
+            # searched meanwhile.
+            if drive_connected:
+                warm_listing(drive_user)
+                drive_search_handler.head_start(drive_user, request_data)
+
+            intent_config = await ai_config_builder.prepare_intent_detection_config(
+                request_data, drive_connected=drive_connected
+            )
             intent_detection_data = {
                 **request_data,
                 **(intent_config or {}),
-                "tools": self._tool_definitions,
+                "tools": (self._tool_definitions + drive_tools) if drive_tools else self._tool_definitions,
             }
 
             total_content = f"{intent_detection_data.get('user_query', '')}\n{intent_detection_data.get('instructions', '')}"
@@ -94,6 +145,8 @@ class IntentDetectionHandler():
             tool_name = tool_call.name
 
             schema_entry = INTENT_TOOL_SCHEMAS.get(tool_name)
+            if not schema_entry and drive_tools:
+                schema_entry = DRIVE_TOOL_SCHEMAS.get(tool_name)
             if not schema_entry:
                 logger.warning(f"an unknown function name is called :: {tool_name}, agentid :: {data.agentid}")
                 raise Exception(f"Unknown function name :: {tool_name}")
@@ -136,8 +189,16 @@ class IntentDetectionHandler():
 
             logger.info(f"Function name :: {tool_name}, arguments :: {validated_args}, agentid :: {data.agentid}")
 
+            # Cross-check 3: "Drive or chats?" asked without a connected Drive.
+            # Route again with Drive left out, as choosing chats would.
+            if tool_name == ai_constants.FUNCTION_DRIVE_SEARCH and validated_args.confirm_source and not drive_connected:
+                logger.warning(
+                    f"Drive source question without a connected Drive, re-routing without Drive, agentid :: {data.agentid}"
+                )
+                return await self.detect_intent(data.model_copy(update={"exclude_drive": True}), auth_claims=auth_claims)
+
             function_response_data = await self.handle_function_calls(
-                tool_name, validated_args, request_data, raw_response_text=response.text
+                tool_name, validated_args, request_data, raw_response_text=response.text, drive_user=drive_user
             )
 
             function_response_data["request_params"] = request_data
@@ -151,9 +212,17 @@ class IntentDetectionHandler():
                 "error": str(e),
                 "msg": "Failed",
             }
+        finally:
+            # Routed anywhere but Drive search, a search begun meanwhile stops.
+            drive_search_handler.end_head_start(drive_user_from(auth_claims), data.model_dump())
 
     async def handle_function_calls(
-        self, function_name: str, args: Any, request_data: dict, raw_response_text: Optional[str] = None
+        self,
+        function_name: str,
+        args: Any,
+        request_data: dict,
+        raw_response_text: Optional[str] = None,
+        drive_user: Optional[DriveUser] = None,
     ):
         try:
 
@@ -231,6 +300,9 @@ class IntentDetectionHandler():
                 case ai_constants.FUNCTION_OUT_OF_SCOPE:
                     tool_call_response = args.model_dump()
                     tool_call_response["type"] = "out_of_scope"
+
+                case ai_constants.FUNCTION_DRIVE_SEARCH:
+                    tool_call_response = await drive_search_handler.search_from_luna(args, request_data, drive_user)
 
                 case _:
                     logger.warning(f"an unknown function name is called :: {function_name}, arguments :: {args}, agentid :: {request_data.get('agentid')}")

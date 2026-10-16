@@ -21,7 +21,7 @@ Behavior notes vs. the old `providers/open_ai/client.py`:
 import logging
 import os
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -45,12 +45,17 @@ class OpenAIProvider(AIProvider):
             cls._instance.client = AsyncOpenAI(api_key=os.environ["OPEN_AI_API_KEY"], timeout=30)
         return cls._instance
 
+    def warm_up(self) -> None:
+        # The SDK imports the Responses resource and its types on first
+        # access: about 0.8s otherwise spent inside the first request.
+        _ = self.client.responses
+
     async def generate(
         self,
         *,
         model: str,
         instructions: str,
-        input: str,
+        input: Union[str, list[dict]],
         max_output_tokens: int,
         temperature: float,
         tools: Optional[list[dict]] = None,
@@ -59,6 +64,10 @@ class OpenAIProvider(AIProvider):
         previous_response_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
         agentid: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        store: Optional[bool] = None,
+        timeout: Optional[float] = None,
+        service_tier: Optional[str] = None,
         **_: Any,
     ) -> AIResponse:
         start = time.perf_counter()
@@ -83,6 +92,18 @@ class OpenAIProvider(AIProvider):
             create_kwargs["conversation"] = conversation_id
         if previous_response_id is not None:
             create_kwargs["previous_response_id"] = previous_response_id
+
+        # Reasoning depth, server-side storage and processing tier, sent only
+        # when a caller sets them, so other calls are unchanged. timeout is
+        # the SDK's own wait for this call; it is not sent to OpenAI.
+        if reasoning_effort is not None:
+            create_kwargs["reasoning"] = {"effort": reasoning_effort}
+        if store is not None:
+            create_kwargs["store"] = store
+        if timeout is not None:
+            create_kwargs["timeout"] = timeout
+        if service_tier is not None:
+            create_kwargs["service_tier"] = service_tier
 
         response = await self.client.responses.create(**create_kwargs)
 
@@ -136,6 +157,7 @@ class OpenAIProvider(AIProvider):
             usage=usage,
             model=getattr(response, "model", None),
             provider=MODEL_OPENAI_PROVIDER,
+            service_tier=getattr(response, "service_tier", None),
             raw=response,
         )
 
